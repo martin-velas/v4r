@@ -1,6 +1,8 @@
 #include <v4r/common/miscellaneous.h>
 #include <v4r/recognition/multiview_object_recognizer.h>
 #include <v4r/io/filesystem.h>
+#include <v4r/changedet/change_detection.h>
+#include <v4r/changedet/miscellaneous.h>
 
 #include <pcl/common/centroid.h>
 #include <pcl/console/parse.h>
@@ -11,6 +13,53 @@
 #include <time.h>
 #include <stdlib.h>
 
+class MultiviewRecognizerEval : public v4r::MultiviewRecognizer {
+public:
+	int use_change_det_;
+
+private:
+	pcl::PointCloud<PointT>::Ptr changing_scene;
+
+public:
+	MultiviewRecognizerEval() : v4r::MultiviewRecognizer(),
+		use_change_det_(0),
+		changing_scene(new pcl::PointCloud<PointT>()) {
+	}
+
+	virtual void findChangedPoints(
+			pcl::PointCloud<PointT>::ConstPtr observation_unposed,
+			const Eigen::Affine3f &camera_pose,
+			pcl::PointCloud<PointT> &removed_points,
+			pcl::PointCloud<PointT> &added_points) {
+
+		if(use_change_det_ != 0) {
+			pcl::PointCloud<PointT>::Ptr observation(new pcl::PointCloud<PointT>());
+			pcl::transformPointCloud(*observation_unposed, *observation, camera_pose);
+			observation = v4r::downsampleCloud<pcl::PointXYZRGB>(observation);
+
+			pcl::PointCloud<PointT> changes_vis;
+			pcl::copyPointCloud(*observation, changes_vis);
+			if(!changing_scene->empty()) {
+				v4r::ChangeDetector<PointT> detector;
+				detector.detect(changing_scene, observation, camera_pose, 0.03);
+				v4r::ChangeDetector<PointT>::removePointsFrom(changing_scene, detector.getRemoved());
+
+				removed_points += *(detector.getRemoved());
+				added_points += *(detector.getAdded());
+				*changing_scene += added_points;
+
+				v4r::VisualResultsStorage::copyCloudColored(*(detector.getRemoved()),
+						changes_vis, 255, 0, 0);
+				v4r::VisualResultsStorage::copyCloudColored(*(detector.getAdded()),
+						changes_vis, 0, 255, 0);
+			} else {
+				added_points += *observation;
+				*changing_scene += *observation;
+			}
+			visResStore.savePcd("changes", changes_vis);
+		}
+	}
+};
 
 class EvalMvRecognizer
 {
@@ -19,7 +68,7 @@ private:
     typedef v4r::Model<PointT> ModelT;
     typedef boost::shared_ptr<ModelT> ModelTPtr;
 
-    v4r::MultiviewRecognizer r_;
+    MultiviewRecognizerEval r_;
     std::string test_dir_, out_dir_;
     bool visualize_;
     pcl::visualization::PCLVisualizer::Ptr vis_;
@@ -28,7 +77,7 @@ private:
 public:
     EvalMvRecognizer()
     {
-        out_dir_ = "/tmp/sv_recognition_out/";
+        out_dir_ = "/home/martin/Data/output/mv_recognition_out/";
         visualize_ = true;
     }
 
@@ -75,6 +124,12 @@ public:
         pcl::console::parse_argument (argc, argv,  "-out_dir", out_dir_);
         pcl::console::parse_argument (argc, argv,  "-test_dir", test_dir_);
 
+        pcl::console::parse_argument (argc, argv,  "-use_change_det", r_.use_change_det_);
+        pcl::console::parse_argument (argc, argv,  "-use_change_det_rec", r_.mv_params_.use_chdet_for_reconstruction_);
+        pcl::console::parse_argument (argc, argv,  "-use_change_det_novelty_filter", r_.mv_params_.use_chdet_novelty_filter_);
+        pcl::console::parse_argument (argc, argv,  "-vis_output_dir", r_.mv_params_.vis_output_dir);
+        pcl::console::parse_argument (argc, argv,  "-pt_for_hyp_preserve", r_.mv_params_.min_points_for_hyp_preserve);
+
         pcl::console::parse_argument (argc, argv,  "-models_dir", r_.models_dir_);
         pcl::console::parse_argument (argc, argv,  "-training_dir", r_.training_dir_);
 
@@ -119,7 +174,9 @@ public:
         pcl::console::parse_argument (argc, argv,  "-hv_radius_normals", r_.hv_params_.radius_normals_);
         pcl::console::parse_argument (argc, argv,  "-hv_regularizer", r_.hv_params_.regularizer_);
         pcl::console::parse_argument (argc, argv,  "-hv_requires_normals", r_.hv_params_.requires_normals_);
+        pcl::console::parse_argument (argc, argv,  "-hv_use_supervoxels", r_.hv_params_.use_supervoxels_);
 
+        v4r::io::createDirIfNotExist(r_.mv_params_.vis_output_dir);
         v4r::io::createDirIfNotExist(out_dir_);
         r_.initialize();
         ofstream param_file;
@@ -129,6 +186,27 @@ public:
         r_.printParams();
         return true;
     }
+
+	void getPoseOfIfExist(string cloud_filename, vector<float> &pose) {
+		std::string pose_filename = cloud_filename + ".transform";
+		std::cout << "Checking if path " << pose_filename
+				<< " of transform exists. " << std::endl;
+
+		if (boost::filesystem::exists(pose_filename)) {
+			std::cout << "Pose file exists." << std::endl;
+			std::ifstream is((pose_filename).c_str());
+			std::istream_iterator<double> start(is), end;
+			std::vector<float> numbers(start, end);
+			std::cout << "Transform to world coordinate system: " << std::endl;
+			for (size_t i = 0; i < numbers.size(); i++) {
+				std::cout << numbers[i] << " ";
+				pose.push_back(numbers[i]);
+			}
+			std::cout << std::endl;
+		} else {
+			std::cout << "... nope." << std::endl;
+		}
+	}
 
     bool eval()
     {
@@ -154,7 +232,7 @@ public:
             for (size_t v_id=0; v_id<views.size(); v_id++) {
                 const std::string fn = test_dir_ + "/" + sub_folder_names[sub_folder_id] + "/" + views[ v_id ];
 
-                std::cout << "Recognizing file " << fn << std::endl;
+                std::cout << "Recognizing file " << cloud_fn << std::endl;
                 pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
                 pcl::io::loadPCDFile(fn, *cloud);
 

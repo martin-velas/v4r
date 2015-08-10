@@ -169,18 +169,14 @@ NMBasedCloudIntegration<PointT>::compute (const PointTPtr & output)
             int u = static_cast<int> (f_ * p[0] / p[2] + cx_);
             int v = static_cast<int> (f_ * p[1] / p[2] + cy_);
 
-            //Not out of bounds
-            if ((u >= width) || (v >= height) || (u < 0) || (v < 0))
-            {
-              continue;
-            }
-
-            //Check for invalid depth
-            if (!pcl_isfinite (organized_cloud->at (u, v).x) || !pcl_isfinite (organized_cloud->at (u, v).y)
-                || !pcl_isfinite (organized_cloud->at (u, v).z))
-            {
-              continue;
-            }
+			// Not out of bounds & Check for invalid depth
+			if ((u >= width) || (v >= height) || (u < 0) || (v < 0)
+					|| !pcl_isfinite(organized_cloud->at(u, v).x) ||
+					!pcl_isfinite (organized_cloud->at (u, v).y) ||
+					!pcl_isfinite (organized_cloud->at (u, v).z))
+			{
+				continue;
+			}
 
             int idx_org = v * width + u;
 
