@@ -1,4 +1,4 @@
-SET(ObjectGroundTruthAnnotator_DEPS v4r_core v4r_registration v4r_io v4r_common v4r_features v4r_keypoints v4r_reconstruction v4r_recognition edt)
+SET(ObjectGroundTruthAnnotator_DEPS v4r_core v4r_registration v4r_changedet v4r_io v4r_common v4r_features v4r_keypoints v4r_reconstruction v4r_recognition edt)
 v4r_check_dependencies(${ObjectGroundTruthAnnotator_DEPS})
 
 if(NOT V4R_DEPENDENCIES_FOUND)
@@ -51,6 +51,9 @@ add_definitions(-DQT_NO_KEYWORDS)
 find_package(VTK REQUIRED)
 add_executable(GT6DOF GT6DOF.cpp ${foo_MOC_SRCS} main_window.cpp)
 target_link_libraries(GT6DOF ${ObjectGroundTruthAnnotator_DEPS} QVTK ${DEP_LIBS} ${QT_LIBRARIES} ${GL_LIBRARIES})
+
+add_executable(check_pose check_pose.cpp)
+target_link_libraries(check_pose ${ObjectGroundTruthAnnotator_DEPS} QVTK ${DEP_LIBS} ${QT_LIBRARIES} ${GL_LIBRARIES})
 
 INSTALL(TARGETS GT6DOF
   RUNTIME DESTINATION bin
