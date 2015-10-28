@@ -187,27 +187,6 @@ public:
         return true;
     }
 
-	void getPoseOfIfExist(string cloud_filename, vector<float> &pose) {
-		std::string pose_filename = cloud_filename + ".transform";
-		std::cout << "Checking if path " << pose_filename
-				<< " of transform exists. " << std::endl;
-
-		if (boost::filesystem::exists(pose_filename)) {
-			std::cout << "Pose file exists." << std::endl;
-			std::ifstream is((pose_filename).c_str());
-			std::istream_iterator<double> start(is), end;
-			std::vector<float> numbers(start, end);
-			std::cout << "Transform to world coordinate system: " << std::endl;
-			for (size_t i = 0; i < numbers.size(); i++) {
-				std::cout << numbers[i] << " ";
-				pose.push_back(numbers[i]);
-			}
-			std::cout << std::endl;
-		} else {
-			std::cout << "... nope." << std::endl;
-		}
-	}
-
     bool eval()
     {
         std::vector< std::string> sub_folder_names;
@@ -223,6 +202,8 @@ public:
             const std::string sequence_path = test_dir_ + "/" + sub_folder_names[ sub_folder_id ];
             const std::string out_path = out_dir_ + "/" + sub_folder_names[ sub_folder_id ];
             v4r::io::createDirIfNotExist(out_path);
+
+            ofstream result_file((out_path + "results_3d.txt").c_str());
 
             rec_models_per_id_.clear();
 
@@ -271,6 +252,13 @@ public:
                     std::stringstream out_fn;
                     out_fn << out_path << "/" << views[v_id].substr(0, views[v_id].length()-4) << "_"
                            << model_id.substr(0, model_id.length() - 4) << "_" << num_models_per_model_id << ".txt";
+
+                    result_file << model_id;
+                    Eigen::Matrix4f object_global_pose = pose * tf;
+                    for (int i = 0; i < 16; i++) {
+                    	result_file << " " << object_global_pose(i / 4, i % 4);
+                    }
+                    result_file << endl;
 
                     ofstream or_file;
                     or_file.open (out_fn.str().c_str());
