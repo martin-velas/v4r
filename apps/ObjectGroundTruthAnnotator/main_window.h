@@ -21,6 +21,20 @@
 
 namespace bf = boost::filesystem;
 
+class MainWindow;
+
+class HypothesesList : public QListView {
+public:
+	void keyPressEvent( QKeyEvent *k );
+
+	void setMainWindow(MainWindow* mainWindow) {
+		this->mainWindow = mainWindow;
+	}
+
+private:
+	MainWindow *mainWindow;
+};
+
 class MainWindow : public QObject
 {
    Q_OBJECT
@@ -233,7 +247,7 @@ private:
   std::vector<pcl::PointCloud<PointT>::Ptr> model_clouds_;
 
   QWidget * mainWindow_;
-  QListView * model_list_;
+  HypothesesList * model_list_;
   QPushButton *save_model_;
   QPushButton *icp_button_;
   QPushButton * remove_highlighted_hypotheses_;
