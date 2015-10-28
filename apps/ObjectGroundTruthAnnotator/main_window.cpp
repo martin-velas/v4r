@@ -1141,8 +1141,7 @@ MainWindow::MainWindow(int argc, char *argv[])
   pviz_scenes_ = new pcl::visualization::PCLVisualizer("viz_scenes",true);
   pviz_scenes_->registerMouseCallback (mouse_callback_scenes, (void*)(this));
 
-  std::vector<ModelTPtr> models = source_->getModels();
-  size_t models_size = models.size();
+  size_t models_size = source_->getModels().size();
   size_t scenes_size = 20;//single_scenes_.size ();
 
   vtk_widget_models_ = new QVTKWidget;

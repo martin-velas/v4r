@@ -47,6 +47,8 @@
 #include <v4r/recognition/multiview_object_recognizer.h>
 #include <v4r/recognition/recognizer.h>
 #include <v4r/recognition/registered_views_source.h>
+#include <v4r/changedet/miscellaneous.h>
+#include <v4r/changedet/change_detection.h>
 
 #include <pcl/common/centroid.h>
 #include <pcl/filters/passthrough.h>
@@ -61,26 +63,70 @@
 
 namespace po = boost::program_options;
 
+typedef pcl::PointXYZRGB PointT;
+
+class MultiviewRecognizerWithChangeDetection : public v4r::MultiviewRecognizer<PointT> {
+
+private:
+	pcl::PointCloud<PointT>::Ptr changing_scene;
+
+public:
+	MultiviewRecognizerWithChangeDetection(Parameter parameters) :
+		v4r::MultiviewRecognizer<PointT>(parameters),
+		changing_scene(new pcl::PointCloud<PointT>) {
+	}
+
+	virtual void findChangedPoints(
+			pcl::PointCloud<PointT> observation_unposed,
+			Eigen::Affine3f pose,
+			pcl::PointCloud<PointT> &removed_points,
+			pcl::PointCloud<PointT> &added_points) {
+
+		if(param_.use_change_detection_) {
+			pcl::PointCloud<PointT>::Ptr observation(new pcl::PointCloud<PointT>());
+			pcl::transformPointCloud(observation_unposed, *observation, pose);
+			observation = v4r::downsampleCloud<pcl::PointXYZRGB>(observation);
+
+			if(!changing_scene->empty()) {
+				v4r::ChangeDetector<PointT> detector;
+				detector.detect(changing_scene, observation, pose, 0.03);
+				v4r::ChangeDetector<PointT>::removePointsFrom(changing_scene, detector.getRemoved());
+
+				removed_points += *(detector.getRemoved());
+				added_points += *(detector.getAdded());
+				*changing_scene += added_points;
+			} else {
+				added_points += *observation;
+				*changing_scene += *observation;
+			}
+		}
+	}
+};
+
 class Rec
 {
 private:
-    typedef pcl::PointXYZRGB PointT;
     typedef v4r::Model<PointT> ModelT;
     typedef boost::shared_ptr<ModelT> ModelTPtr;
     typedef pcl::Histogram<128> FeatureT;
 
     boost::shared_ptr<v4r::MultiRecognitionPipeline<PointT> > rr_;
-    boost::shared_ptr<v4r::MultiviewRecognizer<PointT> > mv_r_;
+    boost::shared_ptr<MultiviewRecognizerWithChangeDetection > mv_r_;
 
     std::string test_dir_;
+    std::string out_dir_;
     bool visualize_;
 
     cv::Ptr<SiftGPU> sift_;
 
+    std::map<std::string, size_t> rec_models_per_id_;
+
 public:
-    Rec()
-    {
-    }
+
+	Rec() :
+			out_dir_("/tmp/recognition_output") {
+		visualize_ = true;
+	}
 
     bool initialize(int argc, char ** argv)
     {
@@ -112,7 +158,9 @@ public:
                 ("models_dir,m", po::value<std::string>(&models_dir)->required(), "directory containing the model .pcd files")
                 ("training_dir", po::value<std::string>(&training_dir)->required(), "directory containing the training data (for each model there should be a folder with the same name as the model and inside this folder there must be training views of the model with pose and segmented indices)")
                 ("test_dir", po::value<std::string>(&test_dir_)->required(), "Directory with test scenes stored as point clouds (.pcd). The camera pose is taken directly from the pcd header fields \"sensor_orientation_\" and \"sensor_origin_\" (if the test directory contains subdirectories, each subdirectory is considered as seperate sequence for multiview recognition)")
-                ("visualize,v", po::value<bool>(&visualize_)->default_value(true), "If true, turns visualization on")
+                ("out_dir", po::value<std::string>(&out_dir_)->default_value(out_dir_), "Directory, where output of the detector will be stored.");
+        		("store_vis_results_to", po::value<std::string>(&paramMultiView.store_vis_results_to_)->default_value(""), "Directory when results visualisation will be storred.");
+        		("visualize,v", po::value<bool>(&visualize_)->default_value(true), "If true, turns visualization on")
                 ("do_sift", po::value<bool>(&do_sift)->default_value(true), "if true, generates hypotheses using SIFT (visual texture information)")
                 ("do_shot", po::value<bool>(&do_shot)->default_value(false), "if true, generates hypotheses using SHOT (local geometrical properties)")
                 ("do_ourcvfh", po::value<bool>(&do_ourcvfh)->default_value(false), "if true, generates hypotheses using OurCVFH (global geometrical properties, requires segmentation!)")
@@ -163,6 +211,11 @@ public:
                 ("visualize_go3d_cues", po::value<bool>(&paramGO3D.visualize_cues_)->default_value(paramGO3D.visualize_cues_), "If true, visualizes cues computated at the go3d verification stage such as inlier, outlier points. Mainly used for debugging.")
                 ("visualize_go_cues_", po::value<bool>(&paramGO3D.visualize_go_cues_)->default_value(paramGO3D.visualize_go_cues_), "If true, visualizes cues computated at the hypothesis verification stage such as inlier, outlier points. Mainly used for debugging.")
                 ("normal_method,n", po::value<int>(&normal_computation_method)->default_value(normal_computation_method), "chosen normal computation method of the V4R library")
+                ("use_change_detection", po::value<bool>(&paramMultiView.use_change_detection_)->default_value(paramMultiView.use_change_detection_), "Use change detection from hypothesis removal")
+                ("min_points_for_hyp_removal", po::value<int>(&paramMultiView.min_points_for_hyp_removal_)->default_value(paramMultiView.min_points_for_hyp_removal_), "Minimal overlap with removed points in order to remove hypothesis")
+                ("use_novelty_filter", po::value<bool>(&paramMultiView.use_novelty_filter_)->default_value(paramMultiView.use_novelty_filter_), "Use novelty filter for preserving hypotheses")
+                ("min_points_for_hyp_preserve", po::value<int>(&paramMultiView.min_points_for_hyp_preserve_)->default_value(paramMultiView.min_points_for_hyp_preserve_), "Minimal overlap with novel points in order to preserve hypothesis" )
+                ("use_chdet_for_reconstruction", po::value<bool>(&paramMultiView.use_chdet_for_reconstruction_)->default_value(paramMultiView.use_chdet_for_reconstruction_), "Use change detection for reconstruction")
        ;
 
         po::variables_map vm;
@@ -186,9 +239,13 @@ public:
         paramLocalRecSift.normal_computation_method_ = paramLocalRecShot.normal_computation_method_ =
                 paramMultiPipeRec.normal_computation_method_ = paramLocalEstimator.normal_computation_method_ =
                 paramMultiView.normal_computation_method_ = normal_computation_method;
-
+		paramMultiPipeRec.store_vis_results_to_ = paramMultiView.store_vis_results_to_;
 
 //        pcl::console::parse_argument (argc, argv,  "-hv_requires_normals", r_.hv_params_.requires_normals_);
+
+        if(!paramMultiView.store_vis_results_to_.empty()) {
+            v4r::io::createDirIfNotExist(paramMultiView.store_vis_results_to_);
+        }
 
         rr_.reset(new v4r::MultiRecognitionPipeline<PointT>(paramMultiPipeRec));
 
@@ -286,7 +343,7 @@ public:
             cast_hv_pointer = boost::static_pointer_cast<v4r::GHV<PointT, PointT> > (hyp_verification_method);
         }
 
-        mv_r_.reset(new v4r::MultiviewRecognizer<PointT>(paramMultiView));
+        mv_r_.reset(new MultiviewRecognizerWithChangeDetection(paramMultiView));
         mv_r_->setSingleViewRecognizer(rr_);
         mv_r_->setCGAlgorithm( gcg_alg );
         mv_r_->setHVAlgorithm( cast_hv_pointer );
@@ -307,6 +364,10 @@ public:
         for (size_t sub_folder_id=0; sub_folder_id < sub_folder_names.size(); sub_folder_id++)
         {
             const std::string sequence_path = test_dir_ + "/" + sub_folder_names[ sub_folder_id ];
+            const std::string out_path = out_dir_ + "/" + sub_folder_names[ sub_folder_id ];
+            v4r::io::createDirIfNotExist(out_path);
+
+            rec_models_per_id_.clear();
 
             std::vector< std::string > views;
             v4r::io::getFilesInDirectory(sequence_path, views, "", ".*.pcd", false);
@@ -338,10 +399,54 @@ public:
 
                 for(size_t m_id=0; m_id<verified_models.size(); m_id++)
                     LOG(INFO) << "******" << verified_models[m_id]->id_ << std::endl <<  transforms_verified[m_id] << std::endl;
+                saveResults(verified_models, transforms_verified, out_path, views[ v_id ]);
             }
             mv_r_->clear(); // delete all stored information from last sequences
         }
         return true;
+    }
+
+	void saveResults(const std::vector<ModelTPtr> &verified_models,
+			const std::vector<Eigen::Matrix4f, Eigen::aligned_allocator<Eigen::Matrix4f> > &transforms,
+			const string &out_path, string v_id) {
+
+		for(size_t m_id=0; m_id<verified_models.size(); m_id++)
+		{
+			std::cout << "********************" << verified_models[m_id]->id_ << std::endl;
+
+			const std::string model_id = verified_models[m_id]->id_;
+			const Eigen::Matrix4f tf = transforms[m_id];
+
+			size_t num_models_per_model_id;
+
+			std::map<std::string, size_t>::iterator it_rec_mod;
+			it_rec_mod = rec_models_per_id_.find(model_id);
+			if(it_rec_mod == rec_models_per_id_.end())
+			{
+				rec_models_per_id_.insert(std::pair<std::string, size_t>(model_id, 1));
+				num_models_per_model_id = 0;
+			}
+			else
+			{
+				num_models_per_model_id = it_rec_mod->second;
+				it_rec_mod->second++;
+			}
+
+			std::stringstream out_fn;
+			out_fn << out_path << "/" << v_id.substr(0, v_id.length()-4) << "_"
+				   << model_id.substr(0, model_id.length() - 4) << "_" << num_models_per_model_id << ".txt";
+
+			ofstream or_file;
+			or_file.open (out_fn.str().c_str());
+			for (size_t row=0; row <4; row++)
+			{
+				for(size_t col=0; col<4; col++)
+				{
+					or_file << tf(row, col) << " ";
+				}
+			}
+			or_file.close();
+		}
     }
 };
 

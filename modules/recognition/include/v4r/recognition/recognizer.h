@@ -36,6 +36,7 @@
 #include <v4r/recognition/hypotheses_verification.h>
 #include <v4r/recognition/local_rec_object_hypotheses.h>
 #include <v4r/recognition/source.h>
+#include <v4r/recognition/visual_results_storage.h>
 
 #include <pcl/common/common.h>
 #include <pcl/visualization/pcl_visualizer.h>
@@ -58,6 +59,7 @@ namespace v4r
             double merge_close_hypotheses_dist_; /// @brief defines the maximum distance of the centroids in meter for clusters to be merged together
             double merge_close_hypotheses_angle_; /// @brief defines the maximum angle in degrees for clusters to be merged together
             int resolution_mm_model_assembly_; /// @brief the resolution in millimeters of the model when it gets assembled into a point cloud
+            std::string store_vis_results_to_;
 
             Parameter(
                     int icp_iterations = 0,
@@ -65,6 +67,7 @@ namespace v4r
                     double voxel_size_icp = 0.0025f,
                     double max_corr_distance = 0.03f,
                     int normal_computation_method = 2,
+                    std::string store_vis_results_to = "",
                     bool merge_close_hypotheses = true,
                     double merge_close_hypotheses_dist = 0.02f,
                     double merge_close_hypotheses_angle = 10.f,
@@ -74,6 +77,7 @@ namespace v4r
                   voxel_size_icp_ (voxel_size_icp),
                   max_corr_distance_ (max_corr_distance),
                   normal_computation_method_ (normal_computation_method),
+                  store_vis_results_to_(store_vis_results_to),
                   merge_close_hypotheses_ (merge_close_hypotheses),
                   merge_close_hypotheses_dist_ (merge_close_hypotheses_dist),
                   merge_close_hypotheses_angle_ (merge_close_hypotheses_angle),
@@ -113,13 +117,16 @@ namespace v4r
         /** \brief Hypotheses verification algorithm */
         typename boost::shared_ptr<HypothesisVerification<PointT, PointT> > hv_algorithm_;
 
+        VisualResultsStorage visResStore;
+
         void poseRefinement();
         void hypothesisVerification ();
 
 
       public:
 
-        Recognizer(const Parameter &p = Parameter())
+        Recognizer(const Parameter &p = Parameter()) :
+			visResStore(p.store_vis_results_to_, !p.store_vis_results_to_.empty())
         {
           param_ = p;
           requires_segmentation_ = false;
@@ -284,6 +291,23 @@ namespace v4r
         }
 
         void visualize () const;
+
+		virtual void saveHypotheses(const std::string &prefix) const {
+			pcl::PointCloud<PointT> hypotheses, hypotheses_verified;
+			for (size_t i = 0; i < models_.size(); i++) {
+				ModelT &m = *models_[i];
+				typename pcl::PointCloud<PointT>::ConstPtr model_cloud = m.getAssembled(0.003f);
+				pcl::PointCloud<PointT> model_aligned;
+				pcl::transformPointCloud(*model_cloud, model_aligned, transforms_[i]);
+				hypotheses += model_aligned;
+				if (model_or_plane_is_verified_.size() >= models_.size() &&
+						model_or_plane_is_verified_[i]) {
+					hypotheses_verified += model_aligned;
+				}
+			}
+			visResStore.savePcd(prefix + "_hypotheses", hypotheses);
+			visResStore.savePcd(prefix + "_hypotheses_verified", hypotheses_verified);
+		}
     };
 }
 #endif /* RECOGNIZER_H_ */
