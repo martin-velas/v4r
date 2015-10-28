@@ -27,6 +27,16 @@
 namespace bf = boost::filesystem;
 
 void
+HypothesesList::keyPressEvent( QKeyEvent *k )
+{
+   switch ( k->key() ) {
+	   case Qt::Key_Delete:
+		   mainWindow->remove_selected();
+		   break;
+   }
+}
+
+void
 mouse_callback_scenes (const pcl::visualization::MouseEvent& mouse_event, void* cookie)
 {
  MainWindow * main_w = (MainWindow *)cookie;
@@ -994,7 +1004,8 @@ MainWindow::MainWindow(int argc, char *argv[])
   zr_minus_ = new QPushButton("ZR-");
   next_ = new QPushButton("->");
   prev_ = new QPushButton("<-");
-  model_list_ = new QListView;
+  model_list_ = new HypothesesList;
+  model_list_->setMainWindow(this);
 
   QObject::connect(icp_button_, SIGNAL(clicked(bool)), this, SLOT(lock_with_icp()));
   QObject::connect(save_model_, SIGNAL(clicked(bool)), this, SLOT(save_model()));
