@@ -69,6 +69,7 @@ protected:
     typedef Model<PointT> ModelT;
     typedef boost::shared_ptr<ModelT> ModelTPtr;
     typedef flann::L1<float> DistT;
+    typedef pcl::PointCloud<PointT> Cloud;
 
     using Recognizer<PointT>::scene_;
     using Recognizer<PointT>::scene_normals_;
@@ -81,6 +82,7 @@ protected:
     using Recognizer<PointT>::poseRefinement;
     using Recognizer<PointT>::hypothesisVerification;
     using Recognizer<PointT>::icp_scene_indices_;
+    using Recognizer<PointT>::visResStore;
 
     boost::shared_ptr<MultiRecognitionPipeline<PointT> > rr_;
 
@@ -114,6 +116,8 @@ protected:
     cv::Ptr<SiftGPU> sift_;
 
     bool computeAbsolutePose(CamConnect & e, bool is_first_edge = false);
+    
+    pcl::PointCloud<PointT> changes_visualization;
 
     /** \brief removes vertices from graph if max_vertices_in_graph has been reached */
     void pruneGraph();
@@ -148,6 +152,7 @@ public:
         using Recognizer<PointT>::Parameter::icp_type_;
         using Recognizer<PointT>::Parameter::normal_computation_method_;
         using Recognizer<PointT>::Parameter::voxel_size_icp_;
+        using Recognizer<PointT>::Parameter::store_vis_results_to_;
         using Recognizer<PointT>::Parameter::merge_close_hypotheses_;
         using Recognizer<PointT>::Parameter::merge_close_hypotheses_dist_;
         using Recognizer<PointT>::Parameter::merge_close_hypotheses_angle_;
@@ -163,6 +168,12 @@ public:
         float chop_z_;  /// @brief points with z-component higher than chop_z_ will be ignored (low chop_z reduces computation time and false positives (noise increase with z)
         bool compute_mst_; /// @brief if true, does point cloud registration by SIFT background matching (given scene_to_scene_ == true), by using given pose (if use_robot_pose_ == true) and by common object hypotheses (if hyp_to_hyp_ == true) from all the possible connection a Mimimum Spanning Tree is computed. If false, it only uses the given pose for each point cloud
 
+        bool use_change_detection_;	// use change detection for old hypothesis/keypoints removal
+        int min_points_for_hyp_removal_;	// minimal overlap for removal
+        bool use_novelty_filter_;	// use additional filtering - only hypothesis overlapping novel points preserved
+        int min_points_for_hyp_preserve_;	// minimal overlap with novel pointy for preserving
+        bool use_chdet_for_reconstruction_;	// use change detection also for scene reconstruction
+
         Parameter (
                 bool scene_to_scene = true,
                 bool use_robot_pose = true,
@@ -173,8 +184,12 @@ public:
                 int extension_mode = 0,
                 int max_vertices_in_graph = 3,
                 float chop_z = std::numeric_limits<float>::max(),
-                bool compute_mst = true
-                ) :
+                bool compute_mst = true,
+                bool use_change_detection = false,
+                int min_points_for_hyp_removal = 50,
+                bool use_novelty_filter = false,
+                int min_points_for_hyp_preserve = 50,
+                bool use_chdet_for_reconstruction = false) :
 
             Recognizer<PointT>::Parameter(),
             scene_to_scene_ (scene_to_scene),
@@ -186,11 +201,16 @@ public:
             extension_mode_ (extension_mode),
             max_vertices_in_graph_ (max_vertices_in_graph),
             chop_z_ (chop_z),
-            compute_mst_ (compute_mst)
+            compute_mst_ (compute_mst),
+            use_change_detection_(use_change_detection),
+            min_points_for_hyp_removal_(min_points_for_hyp_removal),
+            use_novelty_filter_(use_novelty_filter),
+            min_points_for_hyp_preserve_(min_points_for_hyp_preserve),
+            use_chdet_for_reconstruction_(use_chdet_for_reconstruction)
         {}
-    }param_;
+    } param_;
 
-    MultiviewRecognizer(const Parameter &p = Parameter()) : Recognizer<PointT>(p){
+    MultiviewRecognizer(const Parameter &p = Parameter()) : Recognizer<PointT>(p) {
         param_ = p;
         id_ = 0;
         pose_ = Eigen::Matrix4f::Identity();
@@ -239,6 +259,44 @@ public:
 
     void recognize();
 
+    void findChanges();
+
+	virtual void findChangedPoints(
+			pcl::PointCloud<PointT> observation,
+			Eigen::Affine3f pose,
+			pcl::PointCloud<PointT> &removed_points,
+			pcl::PointCloud<PointT> &added_points) {
+		// NO change detection by default
+		// change detection must be realized by overriding this method in derived class
+		// e.g. by ROS wrapper which communicates with other change detection node
+		pcl::transformPointCloud(observation, added_points, pose);
+	}
+
+	bool isRemovedByChange(const PointT &keypoint, size_t origin_id);
+
+	bool isRemovedByChange(ModelTPtr hypothesis_model, Eigen::Matrix4f transform, size_t origin_id);
+
+	bool isPreservedByNovelty(ModelTPtr hypothesis_model, Eigen::Matrix4f transform);
+
+	template <class Content, class Allocator>
+	static void filterVector(typename std::vector<Content, Allocator> &container,
+			const std::vector<bool> &mask) {
+		assert(container.size() == mask.size());
+		typename std::vector<Content, Allocator>::iterator ci = container.begin();
+		for(std::vector<bool>::const_iterator mi = mask.begin(); mi < mask.end(); mi++) {
+			if(*mi) {
+				ci++;
+			} else {
+				ci = container.erase(ci);
+			}
+		}
+	}
+
+	void filterByChangesForReconstruction(typename Cloud::Ptr cloud,
+			pcl::PointCloud<pcl::Normal>::Ptr normals, const View<PointT> &view);
+
+	void setNan(pcl::Normal &normal);
+	void setNan(PointT &pt);
 };
 }
 

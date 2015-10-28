@@ -47,6 +47,7 @@
 #include <v4r/recognition/segmenter.h>
 #include <v4r/segmentation/multiplane_segmentation.h>
 #include <v4r/segmentation/segmentation_utils.h>
+#include <v4r/changedet/change_detection.h>
 
 #include <boost/graph/kruskal_min_spanning_tree.hpp>
 
@@ -282,6 +283,8 @@ MultiviewRecognizer<PointT>::recognize ()
                  "Started recognition for view " << id_ << " in scene " << scene_name_ <<
                  "=========================================================" << std::endl << std::endl;
 
+    visResStore.newView();
+
     boost::shared_ptr< pcl::PointCloud<pcl::Normal> > scene_normals_f (new pcl::PointCloud<pcl::Normal> );
 
     if (!scene_ || scene_->width != 640 || scene_->height != 480)
@@ -295,6 +298,8 @@ MultiviewRecognizer<PointT>::recognize ()
     v.scene_ = scene_;
     v.transform_to_world_co_system_ = pose_;
     v.absolute_pose_ = pose_;
+
+    visResStore.savePcd("observation", *scene_);
 
     computeNormals<PointT>(v.scene_, v.scene_normals_, param_.normal_computation_method_);
 
@@ -348,7 +353,6 @@ MultiviewRecognizer<PointT>::recognize ()
             // In addition to matching views, we can use the computed SIFT features for recognition
             rr_->template setFeatAndKeypoints<FeatureT>(v.sift_signatures_, v.sift_kp_indices_, SIFT);
         }
-
 
         //=====================Pose Estimation=======================
         typename std::map<size_t, View<PointT> >::iterator v_it;
@@ -410,7 +414,6 @@ MultiviewRecognizer<PointT>::recognize ()
                         continue;
                     }
                 }
-
 
                 bool found = false;
                 ViewD target_d;
@@ -479,6 +482,9 @@ MultiviewRecognizer<PointT>::recognize ()
     rr_->setInputCloud(v.scene_);
     rr_->setSceneNormals(v.scene_normals_);
     rr_->recognize();
+    rr_->saveHypotheses("sv");
+
+    findChanges();
 
     if(rr_->getSaveHypothesesParam()) {  // we have to do the correspondence grouping ourselve [Faeulhammer et al 2015, ICRA paper]
         rr_->getSavedHypotheses(v.hypotheses_);
@@ -499,8 +505,9 @@ MultiviewRecognizer<PointT>::recognize ()
 
             //------ Transform keypoints and rotate normals----------
             Eigen::Matrix4f w_tf  = v.absolute_pose_.inverse() * w.absolute_pose_;
-            typename pcl::PointCloud<PointT> cloud_aligned_tmp;
+            typename pcl::PointCloud<PointT> cloud_aligned_tmp, cloud_aligned_world;
             pcl::transformPointCloud(*w.scene_, cloud_aligned_tmp, w_tf);
+            pcl::transformPointCloud(*w.scene_, cloud_aligned_world, w.absolute_pose_);
             pcl::PointCloud<pcl::Normal> normal_aligned_tmp;
             transformNormals(*w.scene_normals_, normal_aligned_tmp, w_tf);
 
@@ -520,6 +527,11 @@ MultiviewRecognizer<PointT>::recognize ()
                     for(size_t c_id=0; c_id<oh_remote.model_scene_corresp_->size(); c_id++) {
                         const pcl::Correspondence &c_new = oh_remote.model_scene_corresp_->at(c_id);
                         const PointT &m_kp_new = oh_remote.model_->keypoints_->points[ c_new.index_query ];
+
+						if (param_.use_change_detection_ &&
+								isRemovedByChange(cloud_aligned_world[c_new.index_match], w.id_)) {
+							continue;
+						}
 
                         const PointT &s_kp_new = cloud_aligned_tmp.points[ c_new.index_match ];
                         const pcl::Normal &s_kp_normal_new = normal_aligned_tmp.points[ c_new.index_match ];
@@ -597,12 +609,17 @@ MultiviewRecognizer<PointT>::recognize ()
                 continue;
 
             for(size_t i=0; i<w.models_.size(); i++) {
-                if(w.model_or_plane_is_verified_[i]) {
-                    v.models_.push_back( w.models_[i] );
-                    v.transforms_.push_back( v.absolute_pose_.inverse() * w.absolute_pose_ * w.transforms_[i] );
-                    v.origin_view_id_.push_back( w.origin_view_id_[i] );
-                    v.model_or_plane_is_verified_.push_back( false );
-                }
+				if (w.model_or_plane_is_verified_[i]) {
+					if(param_.use_change_detection_ && isRemovedByChange(w.models_[i],
+								w.absolute_pose_ * w.transforms_[i], w.origin_view_id_[i])) {
+						continue;
+					}
+					v.models_.push_back(w.models_[i]);
+					v.transforms_.push_back(
+							v.absolute_pose_.inverse() * w.absolute_pose_ * w.transforms_[i]);
+					v.origin_view_id_.push_back(w.origin_view_id_[i]);
+					v.model_or_plane_is_verified_.push_back(false);
+				}
             }
         }
 
@@ -610,12 +627,39 @@ MultiviewRecognizer<PointT>::recognize ()
         transforms_ = v.transforms_;
     }
 
-    boost::shared_ptr<GO3D<PointT, PointT> > hv_algorithm_3d;
+    vector<bool> preserve_mask(v.models_.size(), true);
+    if(param_.use_novelty_filter_) {
+    	vector<bool> preserve_mask(v.models_.size());
+    	for(int i = 0; i < v.models_.size(); i++) {
+    		size_t origin_id = v.origin_view_id_[i];
+    		preserve_mask[i] = v.model_or_plane_is_verified_[i] ||
+    				origin_id != id_ ||
+    				isPreservedByNovelty(v.models_[i], v.absolute_pose_ * v.transforms_[i]);
 
-    if( hv_algorithm_ )
-       hv_algorithm_3d = boost::dynamic_pointer_cast<GO3D<PointT, PointT>> (hv_algorithm_);
+    	}
+    	filterVector(v.models_, preserve_mask);
+    	filterVector(v.transforms_, preserve_mask);
+    	filterVector(v.origin_view_id_, preserve_mask);
+    	filterVector(v.model_or_plane_is_verified_, preserve_mask);
+    }
+    if(param_.use_change_detection_) {
+		for(int i = 0; i < v.models_.size(); i++) {
+			if(preserve_mask[i]) {
+				Cloud aligned;
+				pcl::transformPointCloud(*v.models_[i]->assembled_, aligned,
+						v.absolute_pose_ * v.transforms_[i]);
+				v4r::VisualResultsStorage::copyCloudColored(aligned, changes_visualization, 0, 0, 255);
+			}
+		}
+	    visResStore.savePcd("hypotheses_filtered", changes_visualization);
+    }
 
-    if ( hv_algorithm_3d ) {
+	boost::shared_ptr<GO3D<PointT, PointT> > hv_algorithm_3d;
+
+	if( hv_algorithm_ )
+	   hv_algorithm_3d = boost::dynamic_pointer_cast<GO3D<PointT, PointT>> (hv_algorithm_);
+
+	if ( hv_algorithm_3d ) {
         const double max_keypoint_dist_mv_ = 2.5f;
 
         noise_models::NguyenNoiseModel<PointT> nm (nm_param_);
@@ -648,11 +692,16 @@ MultiviewRecognizer<PointT>::recognize ()
         typename std::map<size_t, View<PointT> >::const_iterator v_it;
         size_t view_id = 0;
         for (v_it = views_.begin(); v_it != views_.end(); ++v_it, view_id++) {
+
             const View<PointT> &w = v_it->second;
             views_noise_weights [view_id ] = w.nguyens_noise_model_weights_;
             original_clouds [view_id ] = w.scene_;
             normal_clouds [view_id] = w.scene_normals_;
             transforms_to_global [view_id] = v.absolute_pose_.inverse() * w.absolute_pose_;
+
+            if(param_.use_chdet_for_reconstruction_) {
+            	filterByChangesForReconstruction(original_clouds.back(), normal_clouds.back(), w);
+			}
         }
 
         //obtain big cloud and occlusion clouds based on new noise model integration
@@ -688,6 +737,8 @@ MultiviewRecognizer<PointT>::recognize ()
    if (views_.size() > 1 ) { // don't do this if there is only one view otherwise point cloud is not kept organized and multi-plane segmentation takes longer
             scene_ = big_cloud_go3D = octree_cloud;
             scene_normals_ = big_cloud_go3D_normals = big_normals;
+    
+            visResStore.savePcd("reconstruction", *big_cloud_go3D);
         }
         else {
             scene_ = v.scene_;
@@ -711,6 +762,7 @@ MultiviewRecognizer<PointT>::recognize ()
     scene_normals_.reset();
 
     pruneGraph();
+    this->saveHypotheses("mv");
     id_++;
 }
 
@@ -790,6 +842,118 @@ MultiviewRecognizer<PointT>::correspondenceGrouping ()
         models_.resize( existing_hypotheses + new_transforms.size(), oh.model_  );
         transforms_.insert(transforms_.end(), new_transforms.begin(), new_transforms.end());
     }
+}
+
+template<typename PointT>
+void
+MultiviewRecognizer<PointT>::findChanges() {
+    View<PointT> &v = views_[id_];
+    findChangedPoints(*v.scene_, Eigen::Affine3f(v.absolute_pose_),
+    		*v.removed_points_, *v.added_points_);
+    for(int prev_id = (int)id_-1; prev_id >= 0; prev_id--) {
+    	if(views_.find(prev_id) != views_.end()) {
+        	*views_[prev_id].removed_points_ += *v.removed_points_;
+    	}
+    }
+
+    // store visualization of the results
+    changes_visualization.clear();
+	pcl::transformPointCloud(*v.scene_, changes_visualization, v.absolute_pose_);
+	v4r::VisualResultsStorage::copyCloudColored(*v.removed_points_, changes_visualization, 255, 0, 0);
+	v4r::VisualResultsStorage::copyCloudColored(*v.added_points_, changes_visualization, 0, 255, 0);
+	visResStore.savePcd("changes", changes_visualization);
+    changes_visualization.clear();
+	v4r::VisualResultsStorage::copyCloudColored(*v.removed_points_, changes_visualization, 255, 0, 0);
+	v4r::VisualResultsStorage::copyCloudColored(*v.added_points_, changes_visualization, 0, 255, 0);
+}
+
+template<typename PointT>
+bool
+MultiviewRecognizer<PointT>::isRemovedByChange(const PointT &kpt, size_t origin_id) {
+	typename pcl::search::KdTree<PointT>::Ptr rem_tree(new pcl::search::KdTree<PointT>);
+	rem_tree->setInputCloud(views_[origin_id].removed_points_);
+	return v4r::ChangeDetector<PointT>::hasPointInRadius(kpt, rem_tree, 0.03);
+}
+
+template<typename PointT>
+bool
+MultiviewRecognizer<PointT>::isRemovedByChange(ModelTPtr model, Eigen::Matrix4f transform,
+		size_t origin_id) {
+	if(views_[origin_id].removed_points_->empty()) {
+		return false;
+	}
+	typename pcl::PointCloud<PointT>::Ptr model_aligned(new pcl::PointCloud<PointT>);
+	pcl::transformPointCloud(*model->assembled_, *model_aligned, transform);
+	int rem_support = v4r::ChangeDetector<PointT>::removalSupport(
+			views_[origin_id].removed_points_, model_aligned)->size();
+	if(rem_support > param_.min_points_for_hyp_removal_) {
+		v4r::VisualResultsStorage::copyCloudColored(*model_aligned, changes_visualization, 255, 0, 0);
+		return true;
+	} else {
+		return false;
+	}
+}
+
+template<typename PointT>
+bool
+MultiviewRecognizer<PointT>::isPreservedByNovelty(ModelTPtr model, Eigen::Matrix4f transform) {
+	if(!param_.use_novelty_filter_ || views_[id_].added_points_->empty()) {
+		return true;
+	}
+
+	typename pcl::PointCloud<PointT>::Ptr model_aligned(new pcl::PointCloud<PointT>);
+	pcl::transformPointCloud(*model->assembled_, *model_aligned, transform);
+	int preserve_support = v4r::ChangeDetector<PointT>::overlapingPoints(
+			model_aligned, views_[id_].added_points_);
+	if(preserve_support > param_.min_points_for_hyp_preserve_) {
+		return true;
+	} else {
+		v4r::VisualResultsStorage::copyCloudColored(*model_aligned, changes_visualization, 200, 150, 0);
+		return false;
+	}
+}
+
+template<typename PointT>
+void
+MultiviewRecognizer<PointT>::filterByChangesForReconstruction(typename Cloud::Ptr cloud,
+		pcl::PointCloud<pcl::Normal>::Ptr normals, const View<PointT> &view) {
+	typename Cloud::Ptr cloud_transformed(new Cloud);
+	pcl::transformPointCloud(*cloud, *cloud_transformed, view.absolute_pose_);
+	typename Cloud::Ptr cloud_tmp(new Cloud);
+	std::vector<int> indices;
+	v4r::ChangeDetector<PointT>::difference(cloud_transformed,
+			view.removed_points_, cloud_tmp, indices, 0.03);
+	PCL_INFO("Points by change detection removed: %d\n",
+			cloud_transformed->size() - indices.size());
+
+	std::vector<bool> preserved_mask(cloud->size(), false);
+	for (std::vector<int>::iterator i = indices.begin(); i < indices.end(); i++) {
+		preserved_mask[*i] = true;
+	}
+	for (size_t j = 0; j < preserved_mask.size(); j++) {
+		if (!preserved_mask[j]) {
+			setNan(cloud->at(j));
+			setNan(normals->at(j));
+		}
+	}
+}
+
+template<typename PointT>
+void
+MultiviewRecognizer<PointT>::setNan(pcl::Normal &normal) {
+	const float nan_point = std::numeric_limits<float>::quiet_NaN();
+	normal.normal_x = nan_point;
+	normal.normal_y = nan_point;
+	normal.normal_z = nan_point;
+}
+
+template<typename PointT>
+void
+MultiviewRecognizer<PointT>::setNan(PointT &pt) {
+	const float nan_point = std::numeric_limits<float>::quiet_NaN();
+	pt.x = nan_point;
+	pt.y = nan_point;
+	pt.z = nan_point;
 }
 
 }

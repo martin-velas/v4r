@@ -47,6 +47,8 @@
 #include <v4r/recognition/multiview_object_recognizer.h>
 #include <v4r/recognition/recognizer.h>
 #include <v4r/recognition/registered_views_source.h>
+#include <v4r/changedet/miscellaneous.h>
+#include <v4r/changedet/change_detection.h>
 
 #include <pcl/common/centroid.h>
 #include <pcl/console/parse.h>
@@ -58,28 +60,70 @@
 #include <time.h>
 #include <stdlib.h>
 
+typedef pcl::PointXYZRGB PointT;
+
+class MultiviewRecognizerWithChangeDetection : public v4r::MultiviewRecognizer<PointT> {
+
+private:
+	pcl::PointCloud<PointT>::Ptr changing_scene;
+
+public:
+	MultiviewRecognizerWithChangeDetection(Parameter parameters) :
+		v4r::MultiviewRecognizer<PointT>(parameters),
+		changing_scene(new pcl::PointCloud<PointT>) {
+	}
+
+	virtual void findChangedPoints(
+			pcl::PointCloud<PointT> observation_unposed,
+			Eigen::Affine3f pose,
+			pcl::PointCloud<PointT> &removed_points,
+			pcl::PointCloud<PointT> &added_points) {
+
+		if(param_.use_change_detection_) {
+			pcl::PointCloud<PointT>::Ptr observation(new pcl::PointCloud<PointT>());
+			pcl::transformPointCloud(observation_unposed, *observation, pose);
+			observation = v4r::downsampleCloud<pcl::PointXYZRGB>(observation);
+
+			if(!changing_scene->empty()) {
+				v4r::ChangeDetector<PointT> detector;
+				detector.detect(changing_scene, observation, pose, 0.03);
+				v4r::ChangeDetector<PointT>::removePointsFrom(changing_scene, detector.getRemoved());
+
+				removed_points += *(detector.getRemoved());
+				added_points += *(detector.getAdded());
+				*changing_scene += added_points;
+			} else {
+				added_points += *observation;
+				*changing_scene += *observation;
+			}
+		}
+	}
+};
+
 class Rec
 {
 private:
-    typedef pcl::PointXYZRGB PointT;
     typedef v4r::Model<PointT> ModelT;
     typedef boost::shared_ptr<ModelT> ModelTPtr;
     typedef pcl::Histogram<128> FeatureT;
 
     boost::shared_ptr<v4r::MultiRecognitionPipeline<PointT> > rr_;
-    boost::shared_ptr<v4r::MultiviewRecognizer<PointT> > mv_r_;
+    boost::shared_ptr<MultiviewRecognizerWithChangeDetection > mv_r_;
 
     std::string test_dir_;
+    std::string out_dir_;
     bool visualize_;
 
     cv::Ptr<SiftGPU> sift_;
 
+    std::map<std::string, size_t> rec_models_per_id_;
+
 public:
 
-    Rec()
-    {
-        visualize_ = true;
-    }
+	Rec() :
+			out_dir_("/tmp/recognition_output") {
+		visualize_ = true;
+	}
 
     bool initialize(int argc, char ** argv)
     {
@@ -125,6 +169,7 @@ public:
 
         pcl::console::parse_argument (argc, argv,  "-visualize", visualize_);
         pcl::console::parse_argument (argc, argv,  "-test_dir", test_dir_);
+        pcl::console::parse_argument (argc, argv,  "-out_dir", out_dir_);
         pcl::console::parse_argument (argc, argv,  "-models_dir", models_dir);
         pcl::console::parse_argument (argc, argv,  "-training_dir", training_dir);
         pcl::console::parse_argument (argc, argv,  "-do_sift", do_sift);
@@ -153,6 +198,14 @@ public:
         pcl::console::parse_argument (argc, argv,  "-chop_z", paramMultiView.chop_z_ );
         pcl::console::parse_argument (argc, argv,  "-max_vertices_in_graph", paramMultiView.max_vertices_in_graph_ );
         pcl::console::parse_argument (argc, argv,  "-compute_mst", paramMultiView.compute_mst_ );
+        pcl::console::parse_argument (argc, argv,  "-store_vis_results_to", paramMultiView.store_vis_results_to_ );
+        paramMultiPipeRec.store_vis_results_to_ = paramMultiView.store_vis_results_to_;
+
+        pcl::console::parse_argument (argc, argv,  "-use_change_detection", paramMultiView.use_change_detection_ );
+        pcl::console::parse_argument (argc, argv,  "-min_points_for_hyp_removal", paramMultiView.min_points_for_hyp_removal_ );
+        pcl::console::parse_argument (argc, argv,  "-use_novelty_filter", paramMultiView.use_novelty_filter_ );
+        pcl::console::parse_argument (argc, argv,  "-min_points_for_hyp_preserve", paramMultiView.min_points_for_hyp_preserve_ );
+        pcl::console::parse_argument (argc, argv,  "-use_chdet_for_reconstruction", paramMultiView.use_chdet_for_reconstruction_ );
 
         pcl::console::parse_argument (argc, argv,  "-cg_size_thresh", paramGgcg.gc_threshold_);
         pcl::console::parse_argument (argc, argv,  "-cg_size", paramGgcg.gc_size_);
@@ -184,6 +237,10 @@ public:
         pcl::console::parse_argument (argc, argv,  "-hv_plane_thrAngle", paramGO3D.plane_thrAngle_);
         pcl::console::parse_argument (argc, argv,  "-knn_plane_clustering_search", paramGO3D.knn_plane_clustering_search_);
 //        pcl::console::parse_argument (argc, argv,  "-hv_requires_normals", r_.hv_params_.requires_normals_);
+
+        if(!paramMultiView.store_vis_results_to_.empty()) {
+            v4r::io::createDirIfNotExist(paramMultiView.store_vis_results_to_);
+        }
 
         rr_.reset(new v4r::MultiRecognitionPipeline<PointT>(paramMultiPipeRec));
 
@@ -281,7 +338,7 @@ public:
             cast_hv_pointer = boost::static_pointer_cast<v4r::GHV<PointT, PointT> > (hyp_verification_method);
         }
 
-        mv_r_.reset(new v4r::MultiviewRecognizer<PointT>(paramMultiView));
+        mv_r_.reset(new MultiviewRecognizerWithChangeDetection(paramMultiView));
         mv_r_->setSingleViewRecognizer(rr_);
         mv_r_->setCGAlgorithm( gcg_alg );
         mv_r_->setHVAlgorithm( cast_hv_pointer );
@@ -302,6 +359,10 @@ public:
         for (size_t sub_folder_id=0; sub_folder_id < sub_folder_names.size(); sub_folder_id++)
         {
             const std::string sequence_path = test_dir_ + "/" + sub_folder_names[ sub_folder_id ];
+            const std::string out_path = out_dir_ + "/" + sub_folder_names[ sub_folder_id ];
+            v4r::io::createDirIfNotExist(out_path);
+
+            rec_models_per_id_.clear();
 
             std::vector< std::string > views;
             v4r::io::getFilesInDirectory(sequence_path, views, "", ".*.pcd", false);
@@ -333,9 +394,53 @@ public:
 
                 for(size_t m_id=0; m_id<verified_models.size(); m_id++)
                     std::cout << "******" << verified_models[m_id]->id_ << std::endl <<  transforms_verified[m_id] << std::endl << std::endl;
+                saveResults(verified_models, transforms_verified, out_path, views[ v_id ]);
             }
         }
         return true;
+    }
+
+	void saveResults(const std::vector<ModelTPtr> &verified_models,
+			const std::vector<Eigen::Matrix4f, Eigen::aligned_allocator<Eigen::Matrix4f> > &transforms,
+			const string &out_path, string v_id) {
+
+		for(size_t m_id=0; m_id<verified_models.size(); m_id++)
+		{
+			std::cout << "********************" << verified_models[m_id]->id_ << std::endl;
+
+			const std::string model_id = verified_models[m_id]->id_;
+			const Eigen::Matrix4f tf = transforms[m_id];
+
+			size_t num_models_per_model_id;
+
+			std::map<std::string, size_t>::iterator it_rec_mod;
+			it_rec_mod = rec_models_per_id_.find(model_id);
+			if(it_rec_mod == rec_models_per_id_.end())
+			{
+				rec_models_per_id_.insert(std::pair<std::string, size_t>(model_id, 1));
+				num_models_per_model_id = 0;
+			}
+			else
+			{
+				num_models_per_model_id = it_rec_mod->second;
+				it_rec_mod->second++;
+			}
+
+			std::stringstream out_fn;
+			out_fn << out_path << "/" << v_id.substr(0, v_id.length()-4) << "_"
+				   << model_id.substr(0, model_id.length() - 4) << "_" << num_models_per_model_id << ".txt";
+
+			ofstream or_file;
+			or_file.open (out_fn.str().c_str());
+			for (size_t row=0; row <4; row++)
+			{
+				for(size_t col=0; col<4; col++)
+				{
+					or_file << tf(row, col) << " ";
+				}
+			}
+			or_file.close();
+		}
     }
 };
 

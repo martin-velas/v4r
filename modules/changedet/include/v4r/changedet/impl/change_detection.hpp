@@ -40,7 +40,7 @@ void ChangeDetector<PointType>::detect(const CloudPtr old_scene, const CloudPtr 
 		OcclusionChecker <PointType> occlusionChecker;
 		Eigen::Vector3f sensor_origin = sensor_pose.translation();
 		occlusionChecker.setViewpoint(sensor_origin); // since it's already transformed in the metaroom frame of ref
-		occlusionChecker.setNumberOfBins(OCCLUSION_CHECKER_BINS);
+		occlusionChecker.setNumberOfBins(params.occlusion_checker_bins);
 		typename OcclusionChecker<PointType>::occlusion_results occlusions_old = occlusionChecker.checkOcclusions(
 				differenceOld, new_scene);
 
@@ -106,7 +106,7 @@ float ChangeDetector<PointType>::computePlanarity(const CloudPtr input_cloud) {
 	seg.setModelType(pcl::SACMODEL_PLANE);
 	seg.setMethodType(pcl::SAC_RANSAC);
 	seg.setMaxIterations(10);
-	seg.setDistanceThreshold(PCL_DIFFERENCE_TOLERANCE);
+	seg.setDistanceThreshold(DEFAULT_PARAMETERS.cloud_difference_tolerance);
 
 	seg.setInputCloud(input_cloud);
 	seg.segment(*inliers, *coefficients);
@@ -147,6 +147,9 @@ std::vector<typename pcl::PointCloud<PointType>::Ptr> ChangeDetector<PointType>:
 
 	return toRet;
 }
+
+template<class PointType>
+const typename ChangeDetector<PointType>::Parameters ChangeDetector<PointType>::DEFAULT_PARAMETERS;
 
 }
 

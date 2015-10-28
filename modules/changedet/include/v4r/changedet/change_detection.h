@@ -21,7 +21,7 @@ public:
     }
 
 	void detect(const CloudPtr source, const CloudPtr target, const Eigen::Affine3f sensor_pose,
-			float diff_tolerance = PCL_DIFFERENCE_TOLERANCE);
+			float diff_tolerance = DEFAULT_PARAMETERS.cloud_difference_tolerance);
 
 	bool isObjectRemoved(CloudPtr object_cloud) const;
 
@@ -31,12 +31,27 @@ public:
 	static clusterPointCloud(CloudPtr input_cloud, double tolerance,
 			int min_cluster_size, int max_cluster_size);
 
+	static bool hasPointInRadius(const PointType &pt, typename Tree::Ptr tree, float distance) {
+		// We're interested in a single neighbor only
+		std::vector<int> nn_indices(1);
+		std::vector<float> nn_distances(1);
+
+		if (!pcl::isFinite(pt)) {
+			return false;
+		}
+		if (tree->radiusSearch(pt, distance, nn_indices, nn_distances, 1) < 1) {
+			return false;
+		} else {
+			return true;
+		}
+	}
+
 	/**
 	 * diff = A \ B
 	 * indices = indexes of preserved points from A
 	 */
 	static void difference(const CloudPtr A, const CloudPtr B, CloudPtr &diff,
-			std::vector<int> &indices, float tolerance = PCL_DIFFERENCE_TOLERANCE) {
+			std::vector<int> &indices, float tolerance = DEFAULT_PARAMETERS.cloud_difference_tolerance) {
 		if(A->empty()) {
 			return;
 		}
@@ -48,42 +63,22 @@ public:
 			return;
 		}
 
-		// We're interested in a single nearest neighbor only
-		std::vector<int> nn_indices(1);
-		std::vector<float> nn_distances(1);
-
 		typename Tree::Ptr tree(new pcl::search::KdTree<PointType>);
 		tree->setInputCloud(B);
 
 		// Iterate through the source data set
 		for (int i = 0; i < static_cast<int>(A->points.size()); ++i) {
-			if (!pcl::isFinite(A->points[i]))
-				continue;
-			// Search for the closest point in the target data set (number of neighbors to find = 1)
-			if (!tree->nearestKSearch(A->points[i], 1, nn_indices,
-					nn_distances)) {
-				PCL_WARN("No neighbor found for point %lu (%f %f %f)!\n", i,
-						A->points[i].x, A->points[i].y, A->points[i].z);
-				continue;
-			}
-
-			if (nn_distances[0] > tolerance*tolerance)
+			if (pcl::isFinite(A->points[i]) &&
+					!hasPointInRadius(A->points[i], tree, tolerance)) {
 				indices.push_back(i);
+			}
 		}
 
-		// Allocate enough space and copy the basics
 		diff->points.resize(indices.size());
 		diff->header = A->header;
 		diff->width = static_cast<uint32_t>(indices.size());
 		diff->height = 1;
-		//if (src.is_dense)
 		diff->is_dense = true;
-		//else
-		// It's not necessarily true that is_dense is false if cloud_in.is_dense is false
-		// To verify this, we would need to iterate over all points and check for NaNs
-		//output.is_dense = false;
-
-		// Copy all the data fields from the input cloud to the output one
 		copyPointCloud(*A, indices, *diff);
 	}
 
@@ -95,7 +90,7 @@ public:
 	static void removePointsFrom(const CloudPtr cloud, const CloudPtr toBeRemoved);
 
 	static int overlapingPoints(const CloudPtr train, const CloudPtr query,
-			float tolerance = PCL_DIFFERENCE_TOLERANCE);
+			float tolerance = DEFAULT_PARAMETERS.cloud_difference_tolerance);
 
 	const CloudPtr getAdded() const {
 		return added;
@@ -107,11 +102,12 @@ public:
 
 	static CloudPtr getNonplanarClusters(CloudPtr removed_points) {
 		std::vector<CloudPtr> clusters = clusterPointCloud(removed_points,
-				MAXIMAL_INTRA_CLUSTER_DIST, MINIMAL_CLUSTER_POINTS, MAXIMAL_CLUSTER_POINTS);
+				DEFAULT_PARAMETERS.maximal_intra_cluster_dist, DEFAULT_PARAMETERS.min_cluster_points,
+				DEFAULT_PARAMETERS.max_cluster_points);
 		CloudPtr nonplanarClusters(new Cloud());
 		for(typename  std::vector<CloudPtr>::iterator c = clusters.begin();
 				c < clusters.end(); c++) {
-			if(computePlanarity(*c) < PLANARITY_THRESHOLD) {
+			if(computePlanarity(*c) < DEFAULT_PARAMETERS.planarity_threshold) {
 				*nonplanarClusters += **c;
 			}
 		}
@@ -121,13 +117,14 @@ public:
 	static CloudPtr removalSupport(CloudPtr removed_points, CloudPtr &object_cloud) {
 		CloudPtr support(new Cloud());
 		std::vector<CloudPtr> removed_clusters = clusterPointCloud(removed_points,
-				MAXIMAL_INTRA_CLUSTER_DIST, MINIMAL_CLUSTER_POINTS, MAXIMAL_CLUSTER_POINTS);
+				DEFAULT_PARAMETERS.maximal_intra_cluster_dist, DEFAULT_PARAMETERS.min_cluster_points,
+				DEFAULT_PARAMETERS.max_cluster_points);
 		for(typename  std::vector<CloudPtr>::iterator c = removed_clusters.begin();
 				c < removed_clusters.end(); c++) {
 
 			// only non planar cluster considered:
-			if(computePlanarity(*c) < PLANARITY_THRESHOLD) {
-				if(overlapingPoints(object_cloud, *c) > (MIN_REMOVAL_OVERLAP * (*c)->size())) {
+			if(computePlanarity(*c) < DEFAULT_PARAMETERS.planarity_threshold) {
+				if(overlapingPoints(object_cloud, *c) > (DEFAULT_PARAMETERS.min_removal_overlap * (*c)->size())) {
 					*support += **c;
 				}
 			}
@@ -143,13 +140,37 @@ private:
 
 	CloudPtr added, removed;
 
-	static const int OCCLUSION_CHECKER_BINS = 180;
-	static const int MINIMAL_CLUSTER_POINTS = 50;
-	static const int MAXIMAL_CLUSTER_POINTS = 1000000;
-	static const float MAXIMAL_INTRA_CLUSTER_DIST = 0.03;
-	static const float PLANARITY_THRESHOLD = 0.95;
-	static const float MIN_REMOVAL_OVERLAP = 0.8;
-	static const float PCL_DIFFERENCE_TOLERANCE = 0.01;
+public:
+
+	class Parameters {
+	public:
+		Parameters(int occlusion_checker_bins = 180,
+				int min_cluster_points = 50, int max_cluster_points = 1000000,
+				float maximal_intra_cluster_dist = 0.03,
+				float planarity_threshold = 0.9,
+				float min_removal_overlap = 0.8,
+				float cloud_difference_tolerance = 0.01) :
+
+				occlusion_checker_bins(occlusion_checker_bins),
+				min_cluster_points(min_cluster_points),
+				max_cluster_points(max_cluster_points),
+				maximal_intra_cluster_dist(maximal_intra_cluster_dist),
+				planarity_threshold(planarity_threshold),
+				min_removal_overlap(min_removal_overlap),
+				cloud_difference_tolerance(cloud_difference_tolerance) {
+		}
+
+		int occlusion_checker_bins;
+		int min_cluster_points;
+		int max_cluster_points;
+		float maximal_intra_cluster_dist;
+		float planarity_threshold;
+		float min_removal_overlap;
+		float cloud_difference_tolerance;
+	};
+
+	static const Parameters DEFAULT_PARAMETERS;
+	Parameters params;
 };
 
 }
