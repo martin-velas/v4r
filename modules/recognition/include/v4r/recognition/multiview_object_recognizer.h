@@ -117,6 +117,8 @@ protected:
 
     bool computeAbsolutePose(CamConnect & e, bool is_first_edge = false);
     
+    std::map < size_t, typename pcl::PointCloud<PointT>::Ptr > removed_points_history_;
+    std::map < size_t, typename pcl::PointCloud<PointT>::Ptr > added_points_history_;
     pcl::PointCloud<PointT> changes_visualization;
 
     /** \brief removes vertices from graph if max_vertices_in_graph has been reached */
@@ -259,6 +261,7 @@ public:
 
     void recognize();
 
+protected:
     void findChanges();
 
 	virtual void findChangedPoints(
@@ -293,7 +296,7 @@ public:
 	}
 
 	void filterByChangesForReconstruction(typename Cloud::Ptr cloud,
-			pcl::PointCloud<pcl::Normal>::Ptr normals, const View<PointT> &view);
+			pcl::PointCloud<pcl::Normal>::Ptr normals, size_t view_id);
 
 	void setNan(pcl::Normal &normal);
 	void setNan(PointT &pt);
