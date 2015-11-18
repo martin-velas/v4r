@@ -54,9 +54,6 @@ public:
     //GO3D
     std::vector<float> nguyens_noise_model_weights_;
     std::vector<int> nguyens_kept_indices_;
-
-    typename pcl::PointCloud<PointT>::Ptr removed_points_;
-    typename pcl::PointCloud<PointT>::Ptr added_points_;
 };
 
 struct V4R_EXPORTS CamConnect

@@ -10,9 +10,7 @@ View<PointT>::View () :
 	// kp_normals_( new pcl::PointCloud<pcl::Normal> ),
 	absolute_pose_(Eigen::Matrix4f::Identity()),
 	has_been_hopped_(false),
-	cumulative_weight_to_new_vrtx_(0),
-	removed_points_(new pcl::PointCloud<PointT>),
-	added_points_(new pcl::PointCloud<PointT>)
+	cumulative_weight_to_new_vrtx_(0)
 {
 }
 

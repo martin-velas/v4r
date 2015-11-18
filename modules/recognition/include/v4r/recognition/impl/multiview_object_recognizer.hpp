@@ -700,10 +700,12 @@ MultiviewRecognizer<PointT>::recognize ()
             normal_clouds [view_id] = w.scene_normals_;
             transforms_to_global [view_id] = v.absolute_pose_.inverse() * w.absolute_pose_;
 
-            if(param_.use_chdet_for_reconstruction_) {
-            	filterByChangesForReconstruction(original_clouds.back(), normal_clouds.back(), w);
+			if (param_.use_chdet_for_reconstruction_) {
+				filterByChangesForReconstruction(original_clouds.back(), normal_clouds.back(), view_id);
 			}
         }
+        std::cerr << "views_.size() = " << views_.size() << std::endl;
+        std::cerr << "original_clouds.size() = " << original_clouds.size() << std::endl;
 
         //obtain big cloud and occlusion clouds based on new noise model integration
         typename pcl::PointCloud<PointT>::Ptr octree_cloud(new pcl::PointCloud<PointT>);
@@ -852,30 +854,35 @@ template<typename PointT>
 void
 MultiviewRecognizer<PointT>::findChanges() {
     View<PointT> &v = views_[id_];
-    findChangedPoints(*v.scene_, Eigen::Affine3f(v.absolute_pose_),
-    		*v.removed_points_, *v.added_points_);
-    for(int prev_id = (int)id_-1; prev_id >= 0; prev_id--) {
-    	if(views_.find(prev_id) != views_.end()) {
-        	*views_[prev_id].removed_points_ += *v.removed_points_;
-    	}
-    }
+    removed_points_history_[id_].reset(new pcl::PointCloud<PointT>);
+    added_points_history_[id_].reset(new pcl::PointCloud<PointT>);
+
+	findChangedPoints(*v.scene_, Eigen::Affine3f(v.absolute_pose_),
+			*(removed_points_history_[id_]), *(added_points_history_[id_]));
+    typename std::map < size_t, typename pcl::PointCloud<PointT>::Ptr >::iterator rem_it;
+	for (rem_it = removed_points_history_.begin(); rem_it != removed_points_history_.end(); rem_it++) {
+		if (rem_it->first != id_) {
+			*removed_points_history_[rem_it->first] += *removed_points_history_[id_];
+			*added_points_history_[rem_it->first] += *added_points_history_[id_];
+		}
+	}
 
     // store visualization of the results
     changes_visualization.clear();
 	pcl::transformPointCloud(*v.scene_, changes_visualization, v.absolute_pose_);
-	v4r::VisualResultsStorage::copyCloudColored(*v.removed_points_, changes_visualization, 255, 0, 0);
-	v4r::VisualResultsStorage::copyCloudColored(*v.added_points_, changes_visualization, 0, 255, 0);
+	v4r::VisualResultsStorage::copyCloudColored(*removed_points_history_[id_], changes_visualization, 255, 0, 0);
+	v4r::VisualResultsStorage::copyCloudColored(*added_points_history_[id_], changes_visualization, 0, 255, 0);
 	visResStore.savePcd("changes", changes_visualization);
     changes_visualization.clear();
-	v4r::VisualResultsStorage::copyCloudColored(*v.removed_points_, changes_visualization, 255, 0, 0);
-	v4r::VisualResultsStorage::copyCloudColored(*v.added_points_, changes_visualization, 0, 255, 0);
+	v4r::VisualResultsStorage::copyCloudColored(*removed_points_history_[id_], changes_visualization, 255, 0, 0);
+	v4r::VisualResultsStorage::copyCloudColored(*added_points_history_[id_], changes_visualization, 0, 255, 0);
 }
 
 template<typename PointT>
 bool
 MultiviewRecognizer<PointT>::isRemovedByChange(const PointT &kpt, size_t origin_id) {
 	typename pcl::search::KdTree<PointT>::Ptr rem_tree(new pcl::search::KdTree<PointT>);
-	rem_tree->setInputCloud(views_[origin_id].removed_points_);
+	rem_tree->setInputCloud(removed_points_history_[origin_id]);
 	return v4r::ChangeDetector<PointT>::hasPointInRadius(kpt, rem_tree, 0.03);
 }
 
@@ -883,13 +890,13 @@ template<typename PointT>
 bool
 MultiviewRecognizer<PointT>::isRemovedByChange(ModelTPtr model, Eigen::Matrix4f transform,
 		size_t origin_id) {
-	if(views_[origin_id].removed_points_->empty()) {
+	if(removed_points_history_[origin_id]->empty()) {
 		return false;
 	}
 	typename pcl::PointCloud<PointT>::Ptr model_aligned(new pcl::PointCloud<PointT>);
 	pcl::transformPointCloud(*model->assembled_, *model_aligned, transform);
 	int rem_support = v4r::ChangeDetector<PointT>::removalSupport(
-			views_[origin_id].removed_points_, model_aligned)->size();
+	    removed_points_history_[origin_id], model_aligned)->size();
 	if(rem_support > param_.min_points_for_hyp_removal_) {
 		v4r::VisualResultsStorage::copyCloudColored(*model_aligned, changes_visualization, 255, 0, 0);
 		return true;
@@ -901,14 +908,14 @@ MultiviewRecognizer<PointT>::isRemovedByChange(ModelTPtr model, Eigen::Matrix4f 
 template<typename PointT>
 bool
 MultiviewRecognizer<PointT>::isPreservedByNovelty(ModelTPtr model, Eigen::Matrix4f transform) {
-	if(!param_.use_novelty_filter_ || views_[id_].added_points_->empty()) {
+	if(!param_.use_novelty_filter_ || added_points_history_[id_]->empty()) {
 		return true;
 	}
 
 	typename pcl::PointCloud<PointT>::Ptr model_aligned(new pcl::PointCloud<PointT>);
 	pcl::transformPointCloud(*model->assembled_, *model_aligned, transform);
 	int preserve_support = v4r::ChangeDetector<PointT>::overlapingPoints(
-			model_aligned, views_[id_].added_points_);
+			model_aligned, added_points_history_[id_]);
 	if(preserve_support > param_.min_points_for_hyp_preserve_) {
 		return true;
 	} else {
@@ -920,13 +927,13 @@ MultiviewRecognizer<PointT>::isPreservedByNovelty(ModelTPtr model, Eigen::Matrix
 template<typename PointT>
 void
 MultiviewRecognizer<PointT>::filterByChangesForReconstruction(typename Cloud::Ptr cloud,
-		pcl::PointCloud<pcl::Normal>::Ptr normals, const View<PointT> &view) {
+		pcl::PointCloud<pcl::Normal>::Ptr normals, size_t view_id) {
 	typename Cloud::Ptr cloud_transformed(new Cloud);
-	pcl::transformPointCloud(*cloud, *cloud_transformed, view.absolute_pose_);
+	pcl::transformPointCloud(*cloud, *cloud_transformed, views_[view_id].absolute_pose_);
 	typename Cloud::Ptr cloud_tmp(new Cloud);
 	std::vector<int> indices;
 	v4r::ChangeDetector<PointT>::difference(cloud_transformed,
-			view.removed_points_, cloud_tmp, indices, 0.03);
+	                                        removed_points_history_[view_id], cloud_tmp, indices, 0.03);
 	PCL_INFO("Points by change detection removed: %d\n",
 			cloud_transformed->size() - indices.size());
 
