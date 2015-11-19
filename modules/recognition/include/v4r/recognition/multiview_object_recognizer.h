@@ -117,7 +117,7 @@ protected:
     bool computeAbsolutePose(CamConnect & e, bool is_first_edge = false);
     
     std::map < size_t, typename pcl::PointCloud<PointT>::Ptr > removed_points_history_;
-    std::map < size_t, typename pcl::PointCloud<PointT>::Ptr > added_points_history_;
+    typename pcl::PointCloud<PointT>::Ptr added_points_;
     pcl::PointCloud<PointT> changes_visualization;
 
     /** \brief removes vertices from graph if max_vertices_in_graph has been reached */
