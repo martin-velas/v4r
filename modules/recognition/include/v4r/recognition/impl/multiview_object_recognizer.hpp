@@ -705,8 +705,6 @@ MultiviewRecognizer<PointT>::recognize ()
 						normal_clouds[view_id], view_id);
 			}
         }
-        std::cerr << "views_.size() = " << views_.size() << std::endl;
-        std::cerr << "original_clouds.size() = " << original_clouds.size() << std::endl;
 
         //obtain big cloud and occlusion clouds based on new noise model integration
         typename pcl::PointCloud<PointT>::Ptr octree_cloud(new pcl::PointCloud<PointT>);
@@ -881,6 +879,9 @@ MultiviewRecognizer<PointT>::findChanges() {
 template<typename PointT>
 bool
 MultiviewRecognizer<PointT>::isRemovedByChange(const PointT &kpt, size_t origin_id) {
+	if(removed_points_history_[origin_id]->empty()) {
+		return false;
+	}
 	typename pcl::search::KdTree<PointT>::Ptr rem_tree(new pcl::search::KdTree<PointT>);
 	rem_tree->setInputCloud(removed_points_history_[origin_id]);
 	return v4r::ChangeDetector<PointT>::hasPointInRadius(kpt, rem_tree, 0.03);
