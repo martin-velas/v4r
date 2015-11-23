@@ -82,7 +82,8 @@ public:
 			pcl::PointCloud<PointT> &removed_points,
 			pcl::PointCloud<PointT> &added_points) {
 
-		if(param_.use_change_detection_) {
+		if(param_.use_change_detection_ || param_.use_novelty_filter_ ||
+				param_.use_chdet_for_reconstruction_) {
 			pcl::PointCloud<PointT>::Ptr observation(new pcl::PointCloud<PointT>());
 			pcl::transformPointCloud(observation_unposed, *observation, pose);
 			observation = v4r::downsampleCloud<pcl::PointXYZRGB>(observation);
