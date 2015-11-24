@@ -10,13 +10,16 @@
 
 #include <vector>
 
+#include <pcl/common/transforms.h>
 #include <pcl/point_cloud.h>
 #include <pcl/common/distances.h>
+
+#include <v4r/core/macros.h>
 
 namespace v4r {
 
 template <class PointType>
-class ViewVolume {
+class V4R_EXPORTS ViewVolume {
 public:
 	/**
 	 * angles in rad
@@ -29,23 +32,29 @@ public:
 		sensor_pose(sensor_pose) {
 	}
 
-	void computeVisible(const typename pcl::PointCloud<PointType>::Ptr input,
+	int computeVisible(const typename pcl::PointCloud<PointType>::Ptr input,
 			std::vector<bool> &mask) {
 		pcl::PointCloud<PointType> input_transformed;
 		pcl::transformPointCloud(*input, input_transformed, sensor_pose.inverse());
 
+		int visible_count = 0;
 		assert(input->size() == mask.size());
 		for(int i = 0; i < input_transformed.size(); i++) {
+			bool isIn = in(input_transformed[i]);
+			if(isIn) {
+				visible_count++;
+			}
 			if(!mask[i]) {
-				mask[i] = in(input_transformed[i]);
+				mask[i] = isIn;
 			}
 		}
+		return visible_count;
 	}
 
-	static ViewVolume<PointType> ofXtion(const Eigen::Affine3f &sensor_pose) {
+	static ViewVolume<PointType> ofXtion(const Eigen::Affine3f &sensor_pose, double tolerance = 5.0/*deg*/) {
 		static double degToRad = M_PI / 180.0;
 		return ViewVolume<PointType>(0.5, 3.5, 58*degToRad, 45*degToRad,
-				sensor_pose, 5*degToRad);
+				sensor_pose, tolerance*degToRad);
 	}
 
 	pcl::PointCloud<pcl::PointXYZ> getBorders() const {

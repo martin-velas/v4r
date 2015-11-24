@@ -8,6 +8,7 @@ include_directories(${CMAKE_CURRENT_LIST_DIR}/../../3rdparty/metslib
 
 SET(SOURCE_CPP
   src/Visualizer3D.cpp
+  src/viewport_checker.cpp
 )
 
 SET(SOURCE_HPP

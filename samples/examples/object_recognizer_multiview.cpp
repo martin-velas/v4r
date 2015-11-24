@@ -49,6 +49,7 @@
 #include <v4r/recognition/registered_views_source.h>
 #include <v4r/changedet/miscellaneous.h>
 #include <v4r/changedet/change_detection.h>
+#include <v4r/changedet/viewport_checker.hpp>
 
 #include <pcl/common/centroid.h>
 #include <pcl/filters/passthrough.h>
@@ -116,7 +117,9 @@ private:
 
     std::string test_dir_;
     std::string out_dir_;
+    std::string vis_dir_;
     bool visualize_;
+    bool ignore_outside_of_view_;
 
     cv::Ptr<SiftGPU> sift_;
 
@@ -125,8 +128,7 @@ private:
 public:
 
 	Rec() :
-			out_dir_("/tmp/recognition_output") {
-		visualize_ = true;
+			out_dir_("/tmp/recognition_output"), vis_dir_(""), visualize_(true), ignore_outside_of_view_(false) {
 	}
 
     bool initialize(int argc, char ** argv)
@@ -160,7 +162,7 @@ public:
                 ("training_dir", po::value<std::string>(&training_dir)->required(), "directory containing the training data (for each model there should be a folder with the same name as the model and inside this folder there must be training views of the model with pose and segmented indices)")
                 ("test_dir", po::value<std::string>(&test_dir_)->required(), "Directory with test scenes stored as point clouds (.pcd). The camera pose is taken directly from the pcd header fields \"sensor_orientation_\" and \"sensor_origin_\" (if the test directory contains subdirectories, each subdirectory is considered as seperate sequence for multiview recognition)")
                 ("out_dir", po::value<std::string>(&out_dir_)->default_value(out_dir_), "Directory, where output of the detector will be stored.")
-                ("store_vis_results_to", po::value<std::string>(&paramMultiView.store_vis_results_to_)->default_value(""), "Directory when results visualisation will be storred.")
+                ("store_vis_results_to", po::value<std::string>(&vis_dir_)->default_value(""), "Directory when results visualisation will be storred.")
         		("visualize,v", po::value<bool>(&visualize_)->default_value(true), "If true, turns visualization on")
                 ("do_sift", po::value<bool>(&do_sift)->default_value(true), "if true, generates hypotheses using SIFT (visual texture information)")
                 ("do_shot", po::value<bool>(&do_shot)->default_value(false), "if true, generates hypotheses using SHOT (local geometrical properties)")
@@ -217,6 +219,7 @@ public:
                 ("use_novelty_filter", po::value<bool>(&paramMultiView.use_novelty_filter_)->default_value(paramMultiView.use_novelty_filter_), "Use novelty filter for preserving hypotheses")
                 ("min_points_for_hyp_preserve", po::value<int>(&paramMultiView.min_points_for_hyp_preserve_)->default_value(paramMultiView.min_points_for_hyp_preserve_), "Minimal overlap with novel points in order to preserve hypothesis" )
                 ("use_chdet_for_reconstruction", po::value<bool>(&paramMultiView.use_chdet_for_reconstruction_)->default_value(paramMultiView.use_chdet_for_reconstruction_), "Use change detection for reconstruction")
+                ("ignore_outside_of_view", po::value<bool>(&ignore_outside_of_view_)->default_value(ignore_outside_of_view_), "Ignore detection outside of current field of view")
        ;
 
         po::variables_map vm;
@@ -240,7 +243,7 @@ public:
         paramLocalRecSift.normal_computation_method_ = paramLocalRecShot.normal_computation_method_ =
                 paramMultiPipeRec.normal_computation_method_ = paramLocalEstimator.normal_computation_method_ =
                 paramMultiView.normal_computation_method_ = normal_computation_method;
-		paramMultiPipeRec.store_vis_results_to_ = paramMultiView.store_vis_results_to_;
+		paramMultiPipeRec.store_vis_results_to_ = paramMultiView.store_vis_results_to_ = vis_dir_;
 
 //        pcl::console::parse_argument (argc, argv,  "-hv_requires_normals", r_.hv_params_.requires_normals_);
 
@@ -411,9 +414,23 @@ public:
 			const std::vector<Eigen::Matrix4f, Eigen::aligned_allocator<Eigen::Matrix4f> > &transforms,
 			const string &out_path, string v_id) {
 
+		v4r::ViewVolume<PointT> view_volume = v4r::ViewVolume<PointT>::ofXtion(Eigen::Affine3f::Identity(), 0.0);
 		for(size_t m_id=0; m_id<verified_models.size(); m_id++)
 		{
 			std::cout << "********************" << verified_models[m_id]->id_ << std::endl;
+
+			pcl::PointCloud<PointT>::ConstPtr model = verified_models[m_id]->getAssembled(0.01);
+			pcl::PointCloud<PointT>::Ptr model_transformed(new pcl::PointCloud<PointT>);
+			pcl::transformPointCloud(*model, *model_transformed, transforms[m_id]);
+			std::vector<bool> visible_mask(model_transformed->size(), true);
+			if(ignore_outside_of_view_) {
+				if(view_volume.computeVisible(model_transformed, visible_mask) > 0) {
+					std::cout << "INSIDE of current view volume" << std::endl;
+				} else {
+					std::cout << "OUTSIDE of current view volume - IGNORED!" << std::endl;
+					continue;
+				}
+			}
 
 			const std::string model_id = verified_models[m_id]->id_;
 			const Eigen::Matrix4f tf = transforms[m_id];
