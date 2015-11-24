@@ -299,7 +299,7 @@ public:
         v4r::io::createDirIfNotExist(out_dir_);
 
         // writing parameters to file
-        ofstream param_file;
+        /*ofstream param_file;
         param_file.open ((out_dir_ + "/param.nfo").c_str());
         for(const auto& it : vm)
         {
@@ -321,7 +321,7 @@ public:
 
           param_file << " ";
         }
-        param_file.close();
+        param_file.close();*/
 
         return true;
     }

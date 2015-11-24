@@ -159,8 +159,8 @@ public:
                 ("models_dir,m", po::value<std::string>(&models_dir)->required(), "directory containing the model .pcd files")
                 ("training_dir", po::value<std::string>(&training_dir)->required(), "directory containing the training data (for each model there should be a folder with the same name as the model and inside this folder there must be training views of the model with pose and segmented indices)")
                 ("test_dir", po::value<std::string>(&test_dir_)->required(), "Directory with test scenes stored as point clouds (.pcd). The camera pose is taken directly from the pcd header fields \"sensor_orientation_\" and \"sensor_origin_\" (if the test directory contains subdirectories, each subdirectory is considered as seperate sequence for multiview recognition)")
-                ("out_dir", po::value<std::string>(&out_dir_)->default_value(out_dir_), "Directory, where output of the detector will be stored.");
-        		("store_vis_results_to", po::value<std::string>(&paramMultiView.store_vis_results_to_)->default_value(""), "Directory when results visualisation will be storred.");
+                ("out_dir", po::value<std::string>(&out_dir_)->default_value(out_dir_), "Directory, where output of the detector will be stored.")
+                ("store_vis_results_to", po::value<std::string>(&paramMultiView.store_vis_results_to_)->default_value(""), "Directory when results visualisation will be storred.")
         		("visualize,v", po::value<bool>(&visualize_)->default_value(true), "If true, turns visualization on")
                 ("do_sift", po::value<bool>(&do_sift)->default_value(true), "if true, generates hypotheses using SIFT (visual texture information)")
                 ("do_shot", po::value<bool>(&do_shot)->default_value(false), "if true, generates hypotheses using SHOT (local geometrical properties)")
