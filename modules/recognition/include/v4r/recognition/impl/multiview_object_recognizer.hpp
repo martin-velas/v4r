@@ -898,6 +898,7 @@ MultiviewRecognizer<PointT>::isRemovedByChange(ModelTPtr model, Eigen::Matrix4f 
 	pcl::transformPointCloud(*model->assembled_, *model_aligned, transform);
 	int rem_support = v4r::ChangeDetector<PointT>::removalSupport(
 	    removed_points_history_[origin_id], model_aligned, param_.tolerance_for_cloud_diff_)->size();
+	PCL_INFO("Support for the removal of object [%s,%d]: %d\n", model->id_.c_str(), origin_id, rem_support);
 	if(rem_support > param_.min_points_for_hyp_removal_) {
 		v4r::VisualResultsStorage::copyCloudColored(*model_aligned, changes_visualization, 255, 0, 0);
 		return true;
@@ -917,6 +918,7 @@ MultiviewRecognizer<PointT>::isPreservedByNovelty(ModelTPtr model, Eigen::Matrix
 	pcl::transformPointCloud(*model->assembled_, *model_aligned, transform);
 	int preserve_support = v4r::ChangeDetector<PointT>::overlapingPoints(
 			model_aligned, added_points_, param_.tolerance_for_cloud_diff_);
+	PCL_INFO("Support for preservation as a novelty of object [%s]: %d\n", model->id_.c_str(), preserve_support);
 	if(preserve_support > param_.min_points_for_hyp_preserve_) {
 		return true;
 	} else {
