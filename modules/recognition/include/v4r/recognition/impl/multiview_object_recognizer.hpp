@@ -628,7 +628,6 @@ MultiviewRecognizer<PointT>::recognize ()
         transforms_ = v.transforms_;
     }
 
-    vector<bool> preserve_mask(v.models_.size(), true);
     if(param_.use_novelty_filter_) {
     	vector<bool> preserve_mask(v.models_.size());
     	for(int i = 0; i < v.models_.size(); i++) {
@@ -643,14 +642,12 @@ MultiviewRecognizer<PointT>::recognize ()
     	filterVector(v.origin_view_id_, preserve_mask);
     	filterVector(v.model_or_plane_is_verified_, preserve_mask);
     }
-    if(param_.use_change_detection_) {
+    if(param_.use_change_detection_ || param_.use_novelty_filter_) {
 		for(int i = 0; i < v.models_.size(); i++) {
-			if(preserve_mask[i]) {
-				Cloud aligned;
-				pcl::transformPointCloud(*v.models_[i]->assembled_, aligned,
-						v.absolute_pose_ * v.transforms_[i]);
-				v4r::VisualResultsStorage::copyCloudColored(aligned, changes_visualization, 0, 0, 255);
-			}
+			Cloud aligned;
+			pcl::transformPointCloud(*v.models_[i]->assembled_, aligned,
+					v.absolute_pose_ * v.transforms_[i]);
+			v4r::VisualResultsStorage::copyCloudColored(aligned, changes_visualization, 0, 0, 255);
 		}
 	    visResStore.savePcd("hypotheses_filtered", changes_visualization);
     }
