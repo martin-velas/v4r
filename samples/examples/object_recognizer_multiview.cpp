@@ -219,6 +219,7 @@ public:
                 ("use_novelty_filter", po::value<bool>(&paramMultiView.use_novelty_filter_)->default_value(paramMultiView.use_novelty_filter_), "Use novelty filter for preserving hypotheses")
                 ("min_points_for_hyp_preserve", po::value<int>(&paramMultiView.min_points_for_hyp_preserve_)->default_value(paramMultiView.min_points_for_hyp_preserve_), "Minimal overlap with novel points in order to preserve hypothesis" )
                 ("use_chdet_for_reconstruction", po::value<bool>(&paramMultiView.use_chdet_for_reconstruction_)->default_value(paramMultiView.use_chdet_for_reconstruction_), "Use change detection for reconstruction")
+                ("tolerance_for_cloud_diff", po::value<float>(&paramMultiView.tolerance_for_cloud_diff_)->default_value(paramMultiView.tolerance_for_cloud_diff_), "Tolerance when difference of clouds is computed")
                 ("ignore_outside_of_view", po::value<bool>(&ignore_outside_of_view_)->default_value(ignore_outside_of_view_), "Ignore detection outside of current field of view")
        ;
 

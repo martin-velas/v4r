@@ -174,6 +174,7 @@ public:
         bool use_novelty_filter_;	// use additional filtering - only hypothesis overlapping novel points preserved
         int min_points_for_hyp_preserve_;	// minimal overlap with novel pointy for preserving
         bool use_chdet_for_reconstruction_;	// use change detection also for scene reconstruction
+        float tolerance_for_cloud_diff_;
 
         Parameter (
                 bool scene_to_scene = true,
@@ -190,7 +191,8 @@ public:
                 int min_points_for_hyp_removal = 50,
                 bool use_novelty_filter = false,
                 int min_points_for_hyp_preserve = 50,
-                bool use_chdet_for_reconstruction = false) :
+                bool use_chdet_for_reconstruction = false,
+                float tolerance_for_cloud_diff = 0.02) :
 
             Recognizer<PointT>::Parameter(),
             scene_to_scene_ (scene_to_scene),
@@ -207,7 +209,8 @@ public:
             min_points_for_hyp_removal_(min_points_for_hyp_removal),
             use_novelty_filter_(use_novelty_filter),
             min_points_for_hyp_preserve_(min_points_for_hyp_preserve),
-            use_chdet_for_reconstruction_(use_chdet_for_reconstruction)
+            use_chdet_for_reconstruction_(use_chdet_for_reconstruction),
+            tolerance_for_cloud_diff_(tolerance_for_cloud_diff)
         {}
     } param_;
 
