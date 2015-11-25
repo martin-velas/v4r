@@ -115,7 +115,8 @@ public:
 	}
 
 	static CloudPtr removalSupport(CloudPtr removed_points, CloudPtr &object_cloud,
-			float tolerance = DEFAULT_PARAMETERS.cloud_difference_tolerance) {
+			float tolerance = DEFAULT_PARAMETERS.cloud_difference_tolerance,
+			float planarity_threshold = DEFAULT_PARAMETERS.planarity_threshold) {
 		CloudPtr support(new Cloud());
 		std::vector<CloudPtr> removed_clusters = clusterPointCloud(removed_points,
 				DEFAULT_PARAMETERS.maximal_intra_cluster_dist, DEFAULT_PARAMETERS.min_cluster_points,
@@ -124,7 +125,7 @@ public:
 				c < removed_clusters.end(); c++) {
 
 			// only non planar cluster considered:
-			if(computePlanarity(*c) < DEFAULT_PARAMETERS.planarity_threshold) {
+			if(planarity_threshold > 1.0 || computePlanarity(*c) < planarity_threshold) {
 				if(overlapingPoints(object_cloud, *c, tolerance) > (DEFAULT_PARAMETERS.min_removal_overlap * (*c)->size())) {
 					*support += **c;
 				}

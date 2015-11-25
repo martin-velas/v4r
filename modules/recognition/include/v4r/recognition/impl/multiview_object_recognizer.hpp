@@ -897,7 +897,7 @@ MultiviewRecognizer<PointT>::isRemovedByChange(ModelTPtr model, Eigen::Matrix4f 
 	typename pcl::PointCloud<PointT>::Ptr model_aligned(new pcl::PointCloud<PointT>);
 	pcl::transformPointCloud(*model->assembled_, *model_aligned, transform);
 	int rem_support = v4r::ChangeDetector<PointT>::removalSupport(
-	    removed_points_history_[origin_id], model_aligned, param_.tolerance_for_cloud_diff_)->size();
+	    removed_points_history_[origin_id], model_aligned, param_.tolerance_for_cloud_diff_, 1.1)->size();
 	PCL_INFO("Support for the removal of object [%s,%d]: %d\n", model->id_.c_str(), origin_id, rem_support);
 	if(rem_support > param_.min_points_for_hyp_removal_) {
 		v4r::VisualResultsStorage::copyCloudColored(*model_aligned, changes_visualization, 255, 0, 0);
