@@ -700,6 +700,11 @@ MultiviewRecognizer<PointT>::recognize ()
 			if (param_.use_chdet_for_reconstruction_) {
 				filterByChangesForReconstruction(original_clouds[view_id],
 						normal_clouds[view_id], view_id);
+		        noise_models::NguyenNoiseModel<PointT> nm (nm_param_);
+		        nm.setInputCloud(original_clouds[view_id]);
+		        nm.setInputNormals(normal_clouds[view_id]);
+		        nm.compute();
+		        nm.getWeights(views_noise_weights [view_id ]);
 			}
         }
 
