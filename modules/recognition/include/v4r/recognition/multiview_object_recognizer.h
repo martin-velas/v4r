@@ -310,7 +310,7 @@ protected:
 	}
 
 	void filterByChangesForReconstruction(typename Cloud::Ptr cloud,
-			pcl::PointCloud<pcl::Normal>::Ptr normals, size_t view_id);
+			pcl::PointCloud<pcl::Normal>::Ptr normals, const Eigen::Matrix4f &cloud_pose, size_t view_id);
 
 	void setNan(pcl::Normal &normal);
 	void setNan(PointT &pt);

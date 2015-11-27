@@ -688,23 +688,23 @@ MultiviewRecognizer<PointT>::recognize ()
         std::vector< Eigen::Matrix4f, Eigen::aligned_allocator<Eigen::Matrix4f>  > transforms_to_global  (views_.size());
 
         typename std::map<size_t, View<PointT> >::const_iterator v_it;
-        size_t view_id = 0;
-        for (v_it = views_.begin(); v_it != views_.end(); ++v_it, view_id++) {
+        size_t index = 0;
+        for (v_it = views_.begin(); v_it != views_.end(); ++v_it, index++) {
 
             const View<PointT> &w = v_it->second;
-            views_noise_weights [view_id ] = w.nguyens_noise_model_weights_;
-            original_clouds [view_id ] = w.scene_;
-            normal_clouds [view_id] = w.scene_normals_;
-            transforms_to_global [view_id] = v.absolute_pose_.inverse() * w.absolute_pose_;
+            views_noise_weights [index] = w.nguyens_noise_model_weights_;
+            original_clouds [index] = w.scene_;
+            normal_clouds [index] = w.scene_normals_;
+            transforms_to_global [index] = v.absolute_pose_.inverse() * w.absolute_pose_;
 
 			if (param_.use_chdet_for_reconstruction_) {
-				filterByChangesForReconstruction(original_clouds[view_id],
-						normal_clouds[view_id], view_id);
+				filterByChangesForReconstruction(original_clouds[index],
+						normal_clouds[index], w.absolute_pose_, v_it->first);
 		        noise_models::NguyenNoiseModel<PointT> nm (nm_param_);
-		        nm.setInputCloud(original_clouds[view_id]);
-		        nm.setInputNormals(normal_clouds[view_id]);
+		        nm.setInputCloud(original_clouds[index]);
+		        nm.setInputNormals(normal_clouds[index]);
 		        nm.compute();
-		        nm.getWeights(views_noise_weights [view_id ]);
+		        nm.getWeights(views_noise_weights [index]);
 			}
         }
 
@@ -932,15 +932,24 @@ MultiviewRecognizer<PointT>::isPreservedByNovelty(ModelTPtr model, Eigen::Matrix
 template<typename PointT>
 void
 MultiviewRecognizer<PointT>::filterByChangesForReconstruction(typename Cloud::Ptr cloud,
-		pcl::PointCloud<pcl::Normal>::Ptr normals, size_t view_id) {
+		pcl::PointCloud<pcl::Normal>::Ptr normals, const Eigen::Matrix4f &cloud_pose, size_t view_id) {
 	typename Cloud::Ptr cloud_transformed(new Cloud);
-	pcl::transformPointCloud(*cloud, *cloud_transformed, views_[view_id].absolute_pose_);
+	pcl::transformPointCloud(*cloud, *cloud_transformed, cloud_pose);
 	typename Cloud::Ptr cloud_tmp(new Cloud);
 	std::vector<int> indices;
-	v4r::ChangeDetector<PointT>::difference(cloud_transformed,
-	                                        removed_points_history_[view_id], cloud_tmp, indices, 0.03);
-	PCL_INFO("Points by change detection removed: %d\n",
-			cloud_transformed->size() - indices.size());
+	v4r::ChangeDetector<PointT>::difference(cloud_transformed, removed_points_history_[view_id], cloud_tmp, indices,
+			param_.tolerance_for_cloud_diff_);
+
+	/* Visualization of changes removal for reconstruction:
+	Cloud rec_changes;
+	rec_changes += *cloud_transformed;
+	v4r::VisualResultsStorage::copyCloudColored(*removed_points_history_[view_id], rec_changes, 255, 0, 0);
+	v4r::VisualResultsStorage::copyCloudColored(*cloud_tmp, rec_changes, 200, 0, 200);
+	stringstream ss;
+	ss << view_id;
+	visResStore.savePcd("reconstruction_changes_" + ss.str(), rec_changes);*/
+
+	PCL_INFO("Points by change detection removed: %d\n", cloud->size() - indices.size());
 
 	std::vector<bool> preserved_mask(cloud->size(), false);
 	for (std::vector<int>::iterator i = indices.begin(); i < indices.end(); i++) {
