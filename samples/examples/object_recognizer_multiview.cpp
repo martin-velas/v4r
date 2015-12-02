@@ -91,7 +91,7 @@ public:
 
 			if(!changing_scene->empty()) {
 				v4r::ChangeDetector<PointT> detector;
-				detector.detect(changing_scene, observation, pose, 0.03);
+				detector.detect(changing_scene, observation, pose, param_.tolerance_for_cloud_diff_);
 				v4r::ChangeDetector<PointT>::removePointsFrom(changing_scene, detector.getRemoved());
 
 				removed_points += *(detector.getRemoved());
