@@ -168,7 +168,7 @@ noise_models::NguyenNoiseModel<PointT>::compute ()
 
       assert(pcl_isfinite(dist_to_edge[i]));
       //adapt weight
-      weights_[i] *= 1.f - 0.5f * std::exp((dist_to_edge[i] * dist_to_edge[i]) / (param_.lateral_sigma_ * param_.lateral_sigma_));
+      weights_[i] *= 1.f - 0.5f * std::exp(-(dist_to_edge[i] * dist_to_edge[i]) / (param_.lateral_sigma_ * param_.lateral_sigma_));
     }
   }
 
