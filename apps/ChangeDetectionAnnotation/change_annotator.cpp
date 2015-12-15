@@ -15,6 +15,8 @@
 #include <pcl/common/transforms.h>
 #include <pcl/visualization/cloud_viewer.h>
 
+#include <cv.h>
+
 #include <v4r_config.h>
 #include <v4r/common/miscellaneous.h>
 #include <v4r/io/filesystem.h>
@@ -22,20 +24,21 @@
 #include <boost/program_options.hpp>
 #include <glog/logging.h>
 
-#include <cv.h>
-
 #include <iostream>
 #include <sstream>
 #include <time.h>
 #include <stdlib.h>
 #include <algorithm>
 
+#include "Types.h"
+#include "Model.h"
+#include "View.h"
+#include "ObjectAnnotation.h"
+#include "GtLinksFile.h"
+
 using namespace std;
 using namespace cv;
 namespace po = boost::program_options;
-
-typedef pcl::PointXYZRGB PointT;
-typedef pcl::PointCloud<PointT> Cloud;
 
 typedef struct ArgumentsT {
 	string model_dir;
@@ -54,185 +57,6 @@ typedef struct ArgumentsT {
 		preview_only_path("") {
 	}
 } Arguments;
-
-class View {
-public:
-	typedef boost::shared_ptr<View> Ptr;
-	typedef boost::shared_ptr<const View> ConstPtr;
-	typedef map<int, View> Db;
-
-	int id;
-	Cloud::Ptr cloud;
-	Eigen::Matrix4f pose;
-
-	View(int id_) : id(id_), cloud(new Cloud) {
-	}
-
-	static void loadFrom(const string &dir, View::Db &output) {
-		std::vector<std::string> view_files;
-		v4r::io::getFilesInDirectory(dir, view_files, "", ".*.pcd", false);
-		std::sort(view_files.begin(), view_files.end());
-		for (size_t i = 0; i < view_files.size(); i++) {
-			View v(getId(view_files[i]));
-			const std::string fn = dir + "/" + view_files[i];
-			LOG(INFO) << "Adding view " << fn << " (id " << v.id << ")";
-			pcl::io::loadPCDFile(fn, *v.cloud);
-
-			v.pose = v4r::RotTrans2Mat4f(v.cloud->sensor_orientation_, v.cloud->sensor_origin_);
-			// reset view point otherwise pcl visualization is potentially messed up
-			Eigen::Vector4f zero_origin; zero_origin[0] = zero_origin[1] = zero_origin[2] = zero_origin[3] = 0.f;
-			v.cloud->sensor_orientation_ = Eigen::Quaternionf::Identity();
-			v.cloud->sensor_origin_ = zero_origin;
-
-			output.insert(make_pair(v.id, v));
-		}
-	}
-
-	static int getId(const string &filename) {
-		size_t find_pos = filename.find("cloud_");
-		if(find_pos == string::npos) {
-			return atoi(filename.c_str());
-		} else {
-			return atoi(filename.substr(6).c_str());
-		}
-	}
-};
-
-class Model {
-public:
-	typedef boost::shared_ptr<Model> Ptr;
-	typedef boost::shared_ptr<const Model> ConstPtr;
-	typedef map<string, Model> Db;
-
-	string name;
-	Cloud::Ptr cloud;
-
-	Model(const string &name_) : name(name_), cloud(new Cloud) {
-	}
-
-	static void loadFrom(const string &dir, Model::Db &output) {
-		std::vector<std::string> model_files;
-		v4r::io::getFilesInDirectory(dir, model_files, "", ".*.pcd", false);
-		for(size_t i = 0; i < model_files.size(); i++) {
-			string name = model_files[i].substr(0, model_files[i].find('.'));
-			Model m(name);
-			const std::string fn = dir + "/" + model_files[i];
-			LOG(INFO) << "Adding model " << fn << " (id " << m.name << ")";
-
-			pcl::PointCloud<pcl::PointXYZRGBNormal> cloud_with_normals;
-			pcl::io::loadPCDFile(fn, cloud_with_normals);
-			pcl::copyPointCloud(cloud_with_normals, *m.cloud);
-
-			/*pcl::visualization::PCLVisualizer vis("Model loaded");
-			vis.addCoordinateSystem(0.5);
-			vis.initCameraParameters();
-		    pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb_vis(m.cloud);
-		    std::string id = "cloud";
-		    vis.addPointCloud<pcl::PointXYZRGB>(m.cloud, rgb_vis, id);
-		    vis.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, id);
-		    vis.spin();*/
-
-		    output.insert(make_pair(name, m));
-		}
-	}
-};
-
-class ObjectAnnotation {
-public:
-	string filename;
-	int relative_id;
-	const Model *model;
-	const View *view;
-	Eigen::Matrix4f relative_pose;
-
-	ObjectAnnotation(string filename_, int relative_id_, const Model *model_, const View *view_) :
-		filename(filename_), relative_id(relative_id_), model(model_), view(view_) {
-	}
-
-	static void loadFrom(const string &dir, const View::Db &views, const Model::Db &models,
-			vector<ObjectAnnotation> &output, const string &since_model = "") {
-		std::vector<std::string> gt_files;
-		v4r::io::getFilesInDirectory(dir, gt_files, "", ".*.txt", false);
-		for(size_t i = 0; i < gt_files.size(); i++) {
-			int view_id, rel_id;
-			string model_name;
-			splitFilename(gt_files[i], view_id, model_name, rel_id);
-			if(gt_files[i].find("occlusion") != string::npos ||				// ignore occlusion files
-					gt_files[i].find("transformation") != string::npos ||	// ignore transformation files
-					model_name < since_model) {							// skip models of previous objects (e.g. already done)
-				continue;
-			}
-			LOG(INFO) << "Reading annotation " << dir << "/" << gt_files[i] << " (view: " << view_id << ", name: '" << model_name << "' rel_id: " << rel_id << ")";
-
-			ObjectAnnotation ann(gt_files[i], rel_id, &models.find(model_name)->second, &views.find(view_id)->second);
-			ann.readPoseFrom(dir + "/" + gt_files[i]);
-
-			output.push_back(ann);
-		}
-		sort(output.begin(), output.end());
-	}
-
-	static void splitFilename(const string &filename, int &view_id, string &object_name, int &relative_id) {
-		std::vector<std::string> tokens;
-		boost::split(tokens, filename, boost::is_any_of("_."));
-
-		int to_skip = (filename.find("cloud_") == 0) ? 1 : 0;
-
-		// e.g. cloud_10_jasmine_green_tea_0.txt
-		view_id = atoi(tokens[to_skip].c_str());
-
-		std::vector<std::string>::iterator rel_id_token = tokens.begin() + tokens.size() - 2;
-		relative_id = atoi(rel_id_token->c_str());
-
-		std::vector<std::string>::iterator name_start = tokens.begin() + to_skip + 1;
-		std::vector<std::string> name_tokens(name_start, rel_id_token);
-		object_name = boost::join(name_tokens, "_");
-	}
-
-	void readPoseFrom(const string &fn) {
-		std::ifstream f(fn.c_str());
-		if(!f.is_open()) {
-		  std::cerr << "Unable to read matrix: " << filename << std::endl;
-		  exit(1);
-		}
-
-		for(int i = 0; i < 16; i++) {
-			f >> relative_pose(i/4, i%4);
-		}
-		f.close();
-	}
-
-	bool operator < (const ObjectAnnotation &other) const {
-		if(this->model->name != other.model->name) {
-			return this->model->name < other.model->name;
-		} else if(this->view->id != other.view->id) {
-			return this->view->id < other.view->id;
-		} else {
-			return this->relative_id < other.relative_id;
-		}
-	}
-
-	void getVisualization(Cloud &output, bool highlight_r = true, bool highlight_g = true, bool highlight_b = true) const {
-		pcl::transformPointCloud(*view->cloud, output, view->pose);
-		for(Cloud::iterator pt = output.begin(); pt < output.end(); pt++) {
-			pt->r /= 2;
-			pt->g /= 2;
-			pt->b /= 2;
-		}
-
-		Cloud model_transformed;
-		pcl::transformPointCloud(*model->cloud, model_transformed, view->pose * relative_pose);
-		for(Cloud::iterator pt = model_transformed.begin(); pt < model_transformed.end(); pt++) {
-			if(highlight_r)
-				pt->r = min((pt->r*1.5), 255.0);
-			if(highlight_g)
-				pt->g = min((pt->g*1.5), 255.0);
-			if(highlight_b)
-				pt->b = min((pt->b*1.5), 255.0);
-		}
-		output += model_transformed;
-	}
-};
 
 class ChangeAnnotator;
 
@@ -388,14 +212,9 @@ void ChangeAnnotatorGui::renderAnnotations() {
 
 class ChangeAnnotationPreview {
 public:
-	ChangeAnnotationPreview(Arguments arg) : ann_dir(arg.gt_dir), rng(cv::theRNG()) {
+	ChangeAnnotationPreview(Arguments arg) : in_file(arg.preview_only_path), ann_dir(arg.gt_dir), rng(cv::theRNG()) {
 		View::loadFrom(arg.sequence_dir, views);
 		Model::loadFrom(arg.model_dir, models);
-		in_file.open(arg.preview_only_path.c_str());
-		if(!in_file.is_open()) {
-			perror(arg.output_file.c_str());
-			exit(1);
-		}
 		for(int i = 0; i < ROWS*COLS; i++) {
 			viewports.push_back(i);
 			vis_clouds.push_back(Cloud::Ptr(new Cloud));
@@ -407,7 +226,7 @@ public:
 
 		bool finished = false;
 		while(!finished) {
-			vector<string> annotation_sequence = getSequence();
+			vector<string> annotation_sequence = in_file.getSequence();
 			uchar r = rng(256);
 			uchar g = rng(256);
 			uchar b = rng(256);
@@ -445,14 +264,6 @@ public:
 		}
 	}
 
-	vector<string> getSequence() {
-		vector<string> annotation_sequence;
-		string line;
-		getline(in_file, line);
-		boost::split(annotation_sequence, line, boost::is_any_of(" "));
-		return annotation_sequence;
-	}
-
 	void show() {
 		pcl::visualization::PCLVisualizer vis("Changes preview");
 		vis.initCameraParameters();
@@ -477,7 +288,7 @@ public:
 private:
 	View::Db views;
 	Model::Db models;
-	ifstream in_file;
+	GtLinksFile in_file;
 	string ann_dir;
 	cv::RNG& rng;
 
