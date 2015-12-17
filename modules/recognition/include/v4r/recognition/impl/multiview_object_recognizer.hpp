@@ -42,6 +42,7 @@
 #include <v4r/common/noise_models.h>
 #include <v4r/common/noise_model_based_cloud_integration.h>
 #include <v4r/common/pcl_visualization_utils.h>
+#include <v4r/common/stopwatch.h>
 #include <v4r/recognition/hv_go_3D.h>
 #include <v4r/registration/fast_icp_with_gc.h>
 #include <v4r/recognition/multiview_object_recognizer.h>
@@ -759,7 +760,9 @@ MultiviewRecognizer<PointT>::recognize ()
             scene_normals_ = v.scene_normals_;
         }
 
+        v4r::Stopwatch watch;
         hypothesisVerification();
+        std::cout << "!#! Hypotheses verification took: " << watch.elapsed() << "sec" << endl;
         v.model_or_plane_is_verified_ = model_or_plane_is_verified_;
 
         if( hv_algorithm_3d && hv_algorithm_3d->param_.visualize_cues_)
@@ -802,6 +805,7 @@ MultiviewRecognizer<PointT>::correspondenceGrouping ()
             t_est.estimateRigidTransformation (*oh.model_->keypoints_, *scene_, corresp_clusters[i], new_transforms[i]);
 
         if(param_.merge_close_hypotheses_) {
+            std::cout << "!#! merge_close_hypotheses within multiview_object_recognizer" << std::endl;
             std::vector<Eigen::Matrix4f, Eigen::aligned_allocator<Eigen::Matrix4f> > merged_transforms (corresp_clusters.size());
             std::vector<bool> cluster_has_been_taken(corresp_clusters.size(), false);
             const double angle_thresh_rad = param_.merge_close_hypotheses_angle_ * M_PI / 180.f ;

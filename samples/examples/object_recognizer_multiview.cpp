@@ -245,6 +245,7 @@ public:
                 paramMultiPipeRec.normal_computation_method_ = paramLocalEstimator.normal_computation_method_ =
                 paramMultiView.normal_computation_method_ = normal_computation_method;
 		paramMultiPipeRec.store_vis_results_to_ = paramMultiView.store_vis_results_to_ = vis_dir_;
+		paramMultiPipeRec.merge_close_hypotheses_ = paramMultiView.merge_close_hypotheses_;
 
 //        pcl::console::parse_argument (argc, argv,  "-hv_requires_normals", r_.hv_params_.requires_normals_);
 

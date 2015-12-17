@@ -11,6 +11,7 @@
 #include <v4r/recognition/multi_pipeline_recognizer.h>
 #include <pcl/registration/transformation_estimation_svd.h>
 #include <v4r/common/miscellaneous.h>
+#include <v4r/common/stopwatch.h>
 
 namespace v4r
 {
@@ -176,6 +177,10 @@ void MultiRecognitionPipeline<PointT>::correspondenceGrouping ()
     if(cg_algorithm_->getRequiresNormals() && (!scene_normals_ || scene_normals_->points.size() != scene_->points.size()))
         computeNormals<PointT>(scene_, scene_normals_, param_.normal_computation_method_);
 
+    v4r::Stopwatch merge_stopwatch;
+    merge_stopwatch.pause();
+    size_t total_hypotheses = 0;
+    size_t total_hypotheses_clustered = 0;
     typename std::map<std::string, ObjectHypothesis<PointT> >::iterator it;
     for (it = obj_hypotheses_.begin (); it != obj_hypotheses_.end (); ++it)
     {
@@ -202,6 +207,8 @@ void MultiRecognitionPipeline<PointT>::correspondenceGrouping ()
             t_est.estimateRigidTransformation (*oh.model_->keypoints_, *scene_, corresp_clusters[i], new_transforms[i]);
 
         if(param_.merge_close_hypotheses_) {
+            std::cout << "merge_close_hypotheses within multi_pipeline_recognizer" << std::endl;
+            merge_stopwatch.goOn();
             std::vector<Eigen::Matrix4f, Eigen::aligned_allocator<Eigen::Matrix4f> > merged_transforms (corresp_clusters.size());
             std::vector<bool> cluster_has_been_taken(corresp_clusters.size(), false);
             const double angle_thresh_rad = param_.merge_close_hypotheses_angle_ * M_PI / 180.f ;
@@ -239,16 +246,19 @@ void MultiRecognitionPipeline<PointT>::correspondenceGrouping ()
             }
             merged_transforms.resize(kept);
             new_transforms = merged_transforms;
+            merge_stopwatch.pause();
         }
 
         std::cout << "Merged " << corresp_clusters.size() << " clusters into " << new_transforms.size() << " clusters. Total correspondences: " << oh.model_scene_corresp_->size () << " " << it->first << std::endl;
-
+        total_hypotheses += corresp_clusters.size();
+        total_hypotheses_clustered += new_transforms.size();
         //        oh.visualize(*scene_);
 
         size_t existing_hypotheses = models_.size();
         models_.resize( existing_hypotheses + new_transforms.size(), oh.model_  );
         transforms_.insert(transforms_.end(), new_transforms.begin(), new_transforms.end());
     }
+    std::cout << "!#! Merged " << total_hypotheses << " clusters into " << total_hypotheses_clustered << " clusters in " << merge_stopwatch.elapsed() << "sec." << endl;
 }
 
 template<typename PointT>

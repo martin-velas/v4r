@@ -505,6 +505,7 @@ LocalRecognitionPipeline<Distance, PointT, FeatureT>::correspondenceGrouping ()
             t_est.estimateRigidTransformation (*oh.model_->keypoints_, *scene_, corresp_clusters[i], new_transforms[i]);
 
         if(param_.merge_close_hypotheses_) {
+            std::cout << "!#! merge_close_hypotheses within local_recognizer" << std::endl;
             std::vector<Eigen::Matrix4f, Eigen::aligned_allocator<Eigen::Matrix4f> > merged_transforms (corresp_clusters.size());
             std::vector<bool> cluster_has_been_taken(corresp_clusters.size(), false);
             const double angle_thresh_rad = param_.merge_close_hypotheses_angle_ * M_PI / 180.f ;
