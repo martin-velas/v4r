@@ -67,7 +67,9 @@ public:
 	}
 
 	void run() {
-	    while(true) {
+		deleteTxtFilesInOutputDir();
+
+	    for(int new_rel_id = 0; true; new_rel_id++) {
 	    	vector<string> annotation_sequence = gt_links_file.getSequence();
 	    	string ann_file = annotation_sequence.back();
 			if(ann_file.empty()) {
@@ -93,13 +95,7 @@ public:
 				if(v->first > view_id) {
 					Eigen::Matrix4f new_pose = v->second.pose.inverse() * views.find(view_id)->second.pose * ann.relative_pose;
 
-					string penalisation_filename;
-					int new_rel_id = -1;
-					do {
-						new_rel_id++;
-						penalisation_filename = getPenalisationFilename(v->first, model_name, new_rel_id);
-					} while(penalisationFileExists(penalisation_filename));
-
+					string penalisation_filename = getPenalisationFilename(v->first, model_name, new_rel_id);
 					ofstream penalisation_file((output_dir + "/" + penalisation_filename).c_str());
 					for(int r = 0; r < 4; r++) {
 						for(int c = 0; c < 4; c++) {
@@ -111,6 +107,8 @@ public:
 					string penalisation_occ_filename = getPenalisationFilename(v->first, "occlusion_" + model_name, new_rel_id);
 					ofstream penalisation_occ_file((output_dir + "/" + penalisation_occ_filename).c_str());
 					penalisation_occ_file << 0.0 << endl;
+
+					LOG(INFO) << "Created " << penalisation_filename << " and " << penalisation_occ_filename;
 
 					if(visualize) {
 						Cloud *new_scene = new Cloud;
@@ -129,6 +127,16 @@ public:
 	}
 
 protected:
+
+	void deleteTxtFilesInOutputDir() {
+		LOG(INFO) << "cleaning directory '" << output_dir << "' from all txt files.";
+		vector<string> txtFiles;
+		v4r::io::getFilesInDirectory(output_dir, txtFiles, "", ".*.txt", false);
+		for(vector<string>::iterator f = txtFiles.begin(); f < txtFiles.end(); f++) {
+			remove((output_dir + "/" + *f).c_str());
+		}
+	}
+
 	void showResult() {
 		static pcl::visualization::PCLVisualizer vis("Penalties GT");
 		vis.initCameraParameters();
@@ -174,14 +182,7 @@ protected:
 	}
 
 	inline bool penalisationFileExists(const std::string& fn) {
-	    ifstream f((output_dir + "/" + fn).c_str());
-	    if (f.good()) {
-	        f.close();
-	        return true;
-	    } else {
-	        f.close();
-	        return false;
-	    }
+		return v4r::io::existsFile(output_dir + "/" + fn);
 	}
 
 	string getPenalisationFilename(int view_id, const string &model_name, int rel_id) {
