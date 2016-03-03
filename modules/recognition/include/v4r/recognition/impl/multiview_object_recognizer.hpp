@@ -489,7 +489,7 @@ MultiviewRecognizer<PointT>::recognize ()
     rr_->setInputCloud(v.scene_);
     rr_->setSceneNormals(v.scene_normals_);
     rr_->recognize();
-    rr_->saveHypotheses("sv");
+    //rr_->saveHypotheses("sv");
 
     findChanges();
 

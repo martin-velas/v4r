@@ -458,9 +458,9 @@ Recognizer<PointT>::saveHypotheses(const std::string &prefix) const {
 
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr observation(new pcl::PointCloud<pcl::PointXYZRGB>);
         VisualResultsStorage::copyCloudColorReduced(*scene_, *observation);
-        std::cerr << "[Visualizer] hypotheses transfered" << hyp << std::endl;
+        std::cerr << "[Visualizer] hypotheses transfered: " << hyp << std::endl;
         Visualizer3D::commonVis.clear().addColorPointCloud(observation).addColorPointCloud(hypotheses.makeShared()).show();
-        std::cerr << "[Visualizer] hypotheses verified" << hyp_verified << std::endl;
+        std::cerr << "[Visualizer] hypotheses verified: " << hyp_verified << std::endl;
         Visualizer3D::commonVis.clear().addColorPointCloud(observation).addColorPointCloud(hypotheses_verified.makeShared()).show();
 }
 
