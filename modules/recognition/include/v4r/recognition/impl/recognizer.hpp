@@ -38,6 +38,7 @@
 #include <v4r/recognition/voxel_based_correspondence_estimation.h>
 #include <v4r/segmentation/multiplane_segmentation.h>
 #include <v4r/segmentation/ClusterNormalsToPlanesPCL.h>
+#include <v4r/changedet/Visualizer3D.h>
 
 #include <pcl/common/centroid.h>
 #include <pcl/filters/crop_box.h>
@@ -432,6 +433,36 @@ Recognizer<pcl::PointXYZRGB>::visualize() const
 //        vis_->addPointCloud<pcl::PointXYZRGB> ( verified_planes_[plane_id], rgb_handler, plane_name.str (), vp3_ );
 //    }
 //}
+
+template<typename PointT>
+void
+Recognizer<PointT>::saveHypotheses(const std::string &prefix) const {
+        pcl::PointCloud<PointT> hypotheses, hypotheses_verified;
+        int hyp, hyp_verified;
+        hyp = hyp_verified = 0;
+        for (size_t i = 0; i < models_.size(); i++) {
+                ModelT &m = *models_[i];
+                typename pcl::PointCloud<PointT>::ConstPtr model_cloud = m.getAssembled(0.003f);
+                pcl::PointCloud<PointT> model_aligned;
+                pcl::transformPointCloud(*model_cloud, model_aligned, transforms_[i]);
+                hypotheses += model_aligned;
+                hyp++;
+                if (model_or_plane_is_verified_.size() >= models_.size() &&
+                                model_or_plane_is_verified_[i]) {
+                        hypotheses_verified += model_aligned;
+                        hyp_verified++;
+                }
+        }
+        visResStore.savePcd(prefix + "_hypotheses", hypotheses);
+        visResStore.savePcd(prefix + "_hypotheses_verified", hypotheses_verified);
+
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr observation(new pcl::PointCloud<pcl::PointXYZRGB>);
+        VisualResultsStorage::copyCloudColorReduced(*scene_, *observation);
+        std::cerr << "[Visualizer] hypotheses transfered" << hyp << std::endl;
+        Visualizer3D::commonVis.clear().addColorPointCloud(observation).addColorPointCloud(hypotheses.makeShared()).show();
+        std::cerr << "[Visualizer] hypotheses verified" << hyp_verified << std::endl;
+        Visualizer3D::commonVis.clear().addColorPointCloud(observation).addColorPointCloud(hypotheses_verified.makeShared()).show();
+}
 
 
 }
