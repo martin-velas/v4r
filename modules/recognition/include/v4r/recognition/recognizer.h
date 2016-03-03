@@ -33,6 +33,7 @@
 #define RECOGNIZER_H_
 
 #include <v4r/core/macros.h>
+#include <v4r/changedet/Visualizer3D.h>
 #include <v4r/recognition/hypotheses_verification.h>
 #include <v4r/recognition/local_rec_object_hypotheses.h>
 #include <v4r/recognition/source.h>
@@ -294,19 +295,30 @@ namespace v4r
 
 		virtual void saveHypotheses(const std::string &prefix) const {
 			pcl::PointCloud<PointT> hypotheses, hypotheses_verified;
+			int hyp, hyp_verified;
+			hyp = hyp_verified = 0;
 			for (size_t i = 0; i < models_.size(); i++) {
 				ModelT &m = *models_[i];
 				typename pcl::PointCloud<PointT>::ConstPtr model_cloud = m.getAssembled(0.003f);
 				pcl::PointCloud<PointT> model_aligned;
 				pcl::transformPointCloud(*model_cloud, model_aligned, transforms_[i]);
 				hypotheses += model_aligned;
+				hyp++;
 				if (model_or_plane_is_verified_.size() >= models_.size() &&
 						model_or_plane_is_verified_[i]) {
 					hypotheses_verified += model_aligned;
+					hyp_verified++;
 				}
 			}
 			visResStore.savePcd(prefix + "_hypotheses", hypotheses);
 			visResStore.savePcd(prefix + "_hypotheses_verified", hypotheses_verified);
+
+			pcl::PointCloud<pcl::PointXYZRGB>::Ptr observation(new pcl::PointCloud<pcl::PointXYZRGB>);
+			VisualResultsStorage::copyCloudColorReduced(*scene_, *observation);
+			std::cerr << "[Visualizer] hypotheses transfered" << hyp << std::endl;
+                        Visualizer3D::commonVis.clear().addColorPointCloud(observation).addColorPointCloud(hypotheses.makeShared()).show();
+                        std::cerr << "[Visualizer] hypotheses verified" << hyp_verified << std::endl;
+                        Visualizer3D::commonVis.clear().addColorPointCloud(observation).addColorPointCloud(hypotheses_verified.makeShared()).show();
 		}
     };
 }

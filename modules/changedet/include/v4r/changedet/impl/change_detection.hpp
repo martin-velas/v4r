@@ -35,7 +35,7 @@ void ChangeDetector<PointType>::detect(const CloudPtr old_scene, const CloudPtr 
 	indices_dummy.clear();
 	difference(new_scene, old_scene, differenceNew, indices_dummy, diff_tolerance);
 
-	/*
+
 	CloudPtr vis_raw_changes(new Cloud);
 	CloudPtr vis_occ_test(new Cloud);
 	CloudPtr vis_view_test(new Cloud);
@@ -43,7 +43,8 @@ void ChangeDetector<PointType>::detect(const CloudPtr old_scene, const CloudPtr 
 	*vis_raw_changes += *new_scene;
 	VisualResultsStorage::copyCloudColored(*differenceOld, *vis_raw_changes, 255, 0, 0);
 	VisualResultsStorage::copyCloudColored(*differenceNew, *vis_raw_changes, 0, 255, 0);
-	 */
+        cerr << "[Visualizer] raw point cloud diff" << endl;
+	Visualizer3D::commonVis.clear().addColorPointCloud(vis_raw_changes, Eigen::Matrix4f::Identity()).show();
 
 	*added += *(differenceNew);
 
@@ -55,13 +56,15 @@ void ChangeDetector<PointType>::detect(const CloudPtr old_scene, const CloudPtr 
 		typename OcclusionChecker<PointType>::occlusion_results occlusions_old = occlusionChecker.checkOcclusions(
 				differenceOld, new_scene);
 
-		/*
+
 		*vis_occ_test += *old_scene;
 		*vis_occ_test += *new_scene;
 		v4r::VisualResultsStorage::copyCloudColored(*occlusions_old.nonOccluded, *vis_occ_test, 255, 0, 0);
 		v4r::VisualResultsStorage::copyCloudColored(*added, *vis_occ_test, 0, 255, 0);
 		pcl::io::savePCDFile("after-occlusion-test.pcd", *vis_occ_test, true);
-		 */
+                cerr << "[Visualizer] occlusion test" << endl;
+		Visualizer3D::commonVis.clear().addColorPointCloud(vis_occ_test, Eigen::Matrix4f::Identity()).show();
+
 
 		ViewportChecker<PointType> viewport_check;
 		ViewVolume<PointType> volume = ViewVolume<PointType>::ofXtion(sensor_pose);
@@ -69,17 +72,18 @@ void ChangeDetector<PointType>::detect(const CloudPtr old_scene, const CloudPtr 
 		CloudPtr outside(new Cloud());
 		viewport_check.getVisibles(occlusions_old.nonOccluded, removed, outside);
 
-		/*
+
 		*vis_view_test += *old_scene;
 		*vis_view_test += *new_scene;
 		v4r::VisualResultsStorage::copyCloudColored(*removed, *vis_view_test, 255, 0, 0);
 		v4r::VisualResultsStorage::copyCloudColored(*added, *vis_view_test, 0, 255, 0);
 		pcl::io::savePCDFile("after-view-vol-test.pcd", *vis_view_test, true);
-		 */
+                Visualizer3D::commonVis.clear().addColorPointCloud(vis_view_test, Eigen::Matrix4f::Identity());
+
 	}
 
-	/*
-	Visualizer3D vis;
+
+	/*Visualizer3D vis;
 	int viewport_raw = 0;
 	int viewport_occlusion = 1;
 	int viewport_view_check = 2;
@@ -94,19 +98,24 @@ void ChangeDetector<PointType>::detect(const CloudPtr old_scene, const CloudPtr 
 	vis.getViewer()->createViewPort(0.67, 0.0, 1.0, 1.0, viewport_view_check);
 	vis.getViewer()->setBackgroundColor(255, 255, 255, viewport_view_check);
 	pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> handler_view(vis_view_test);
-	vis.getViewer()->addPointCloud<pcl::PointXYZRGB> (vis_view_test, handler_view, "view_vol_test", viewport_view_check);
+	vis.getViewer()->addPointCloud<pcl::PointXYZRGB> (vis_view_test, handler_view, "view_vol_test", viewport_view_check);*/
 	ViewVolume<PointType> vis_volume = ViewVolume<PointType>::ofXtion(sensor_pose, 0.0);
 	pcl::PointCloud<pcl::PointXYZ> vol_borders = vis_volume.getBorders();
 	for(int i = 0; i < 4; i++) {
-		stringstream ss1; ss1 << "near_" << i;
+		/*stringstream ss1; ss1 << "near_" << i;
 		vis.getViewer()->addLine(vol_borders[i], vol_borders[(i+1)%4], .6, .0, .6, ss1.str(), viewport_view_check);
 		stringstream ss2; ss2 << "far_" << i;
 		vis.getViewer()->addLine(vol_borders[i+4], vol_borders[(i+1)%4+4], .6, .0, .6, ss2.str(), viewport_view_check);
 		stringstream ss3; ss3 << "cross_" << i;
-		vis.getViewer()->addLine(vol_borders[i], vol_borders[i+4], .6, .0, .6, ss3.str(), viewport_view_check);
+		vis.getViewer()->addLine(vol_borders[i], vol_borders[i+4], .6, .0, .6, ss3.str(), viewport_view_check);*/
+
+          Visualizer3D::commonVis.addLine(vol_borders[i], vol_borders[(i+1)%4], .6, .0, .6);
+          Visualizer3D::commonVis.addLine(vol_borders[i+4], vol_borders[(i+1)%4+4], .6, .0, .6);
+          Visualizer3D::commonVis.addLine(vol_borders[i], vol_borders[i+4], .6, .0, .6);
 	}
-	vis.show();
-	 */
+	//vis.show();
+        cerr << "[Visualizer] view frustum test" << endl;
+        Visualizer3D::commonVis.show();
 }
 
 template<class PointType>

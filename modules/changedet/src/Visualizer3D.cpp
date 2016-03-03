@@ -20,14 +20,19 @@ using namespace Eigen;
 
 namespace v4r {
 
+Visualizer3D Visualizer3D::commonVis;
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr Visualizer3D::observation;
+Eigen::Matrix4f Visualizer3D::transform;
+
+
 Visualizer3D::Visualizer3D(const std::string &win_name) :
     rng(cv::theRNG()),
     color_index(0),
     viewer(new pcl::visualization::PCLVisualizer(win_name)),
     identifier(0)
 {
-  viewer->setBackgroundColor(255, 255, 255);
-  viewer->addCoordinateSystem(0.5);
+  viewer->setBackgroundColor(0, 0, 0);
+  //viewer->addCoordinateSystem(0.5);
   viewer->initCameraParameters();
   viewer->setCameraPosition(5, -5, 0, 0, 0, 0);
 }

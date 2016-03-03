@@ -41,21 +41,11 @@ public:
 
   template<typename PointT>
   Visualizer3D& addPointCloud(const pcl::PointCloud<PointT> cloud,
-                              const Eigen::Matrix4f &transformation = Eigen::Matrix4f::Identity()) {
-    pcl::PointCloud<PointT> cloud_transformed;
-    transformPointCloud(cloud, cloud_transformed, transformation);
-    if(transformation.isIdentity()) {
-      //cerr << "Transformation: Identity" << endl;
-    } else {
-      cerr << "Transformation:" << endl << transformation.matrix() << endl;
-      printRT(transformation);
-    }
-
+                              const Eigen::Matrix4f &transformation = transform) {
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr color_cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
     unsigned rgb[] = { rngU(), rngU(), rngU()} ;
 
-    for (typename pcl::PointCloud<PointT>::const_iterator pt = cloud_transformed.begin();
-        pt < cloud_transformed.end(); pt++)
+    for (typename pcl::PointCloud<PointT>::const_iterator pt = cloud.begin(); pt < cloud.end(); pt++)
     {
       pcl::PointXYZRGB color_pt(rgb[0], rgb[1], rgb[2]);
       color_pt.x = pt->x;
@@ -63,17 +53,25 @@ public:
       color_pt.z = pt->z;
       color_cloud->push_back(color_pt);
     }
-    return addColorPointCloud(color_cloud);
+    return addColorPointCloud(color_cloud, transformation);
   }
 
   Visualizer3D& addColorPointCloud(
       const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
-      const Eigen::Matrix4f &transformation = Eigen::Matrix4f::Identity()) {
+      const Eigen::Matrix4f &transformation = transform) {
 
-    pcl::transformPointCloud(*cloud, *cloud, transformation);
-    pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb_vis(cloud);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_transformed(new pcl::PointCloud<pcl::PointXYZRGB>);
+    transformPointCloud(*cloud, *cloud_transformed, transformation);
+    if(transformation.isIdentity()) {
+      //cerr << "Transformation: Identity" << endl;
+    } else {
+      cerr << "Transformation:" << endl << transformation.matrix() << endl;
+      printRT(transformation);
+    }
+
+    pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb_vis(cloud_transformed);
     std::string id = getId("cloud");
-    viewer->addPointCloud<pcl::PointXYZRGB>(cloud, rgb_vis, id);
+    viewer->addPointCloud<pcl::PointXYZRGB>(cloud_transformed, rgb_vis, id);
     viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE,
                                              2, id);
     return *this;
@@ -108,22 +106,21 @@ public:
   Visualizer3D& addSenzor(pcl::PointXYZ position = pcl::PointXYZ(0, 0, 0));
 
   template<typename PointT>
-  Visualizer3D& addLine(const PointT &p1, const PointT &p2,
+  Visualizer3D& addLine(PointT p1, PointT p2,
 		  float r = -1.0, float g = -1.0, float b = -1.0) {
 	  r = (r >= 0) ? r : rngF();
 	  g = (g >= 0) ? g : rngF();
 	  b = (b >= 0) ? b : rngF();
+	  //p1 = pcl::transformPoint(p1, Eigen::Affine3f(transform));
+          //p2 = pcl::transformPoint(p2, Eigen::Affine3f(transform));
 	  viewer->addLine(p1, p2, r, g, b, getId("line"));
 	  return *this;
   }
 
   template<typename PointT>
-  Visualizer3D& addViewVolume(const ViewVolume<PointT> & volume) {
+  Visualizer3D& addViewVolume(const ViewVolume<PointT> & volume, float r = 0.9, float g = 0.7, float b = 0.0) {
 	pcl::PointCloud<pcl::PointXYZ> borders = volume.getBorders();
 	assert(borders.size() == 8);
-	float r = 0.9;
-	float g = 0.7;
-	float b = 0.0;
 	for(int i = 0; i < 4; i++) {
 		addLine(borders[i], borders[(i+1)%4], r, g, b);
 		addLine(borders[i], borders[(i+2)%4], r, g, b);
@@ -135,6 +132,18 @@ public:
   }
 
   void show() {
+    for(std::vector<Eigen::Matrix4f>::iterator t = transforms.begin(); t < transforms.end(); t++) {
+      ViewVolume<pcl::PointXYZ> camera = ViewVolume<pcl::PointXYZ>::ofXtion(Eigen::Affine3f(*t), 10.0);
+      camera.min_dist = 0.01;
+      camera.max_dist = 0.15;
+      if(t == transforms.begin()) {
+        addViewVolume(camera, 1.0, 0.1, 0.1);
+      } else if(t == transforms.begin()+1) {
+        addViewVolume(camera, 0.1, 1.0, 0.1);
+      } else {
+        addViewVolume(camera);
+      }
+    }
     viewer->spin();
   }
 
@@ -146,6 +155,12 @@ public:
 
   void close() {
     viewer->close();
+  }
+
+  Visualizer3D& clear() {
+    viewer->removeAllPointClouds();
+    viewer->removeAllShapes();
+    return *this;
   }
 
   Visualizer3D& keepOnlyClouds(int count);
@@ -162,7 +177,18 @@ public:
     return viewer;
   }
 
+  static Visualizer3D commonVis;
+  static pcl::PointCloud<pcl::PointXYZRGB>::Ptr observation;
+  static Eigen::Matrix4f transform;
+
+  void setTransform(Eigen::Matrix4f new_transform) {
+    transform = new_transform;
+    transforms.push_back(new_transform);
+  }
+
 protected:
+  std::vector<Eigen::Matrix4f> transforms;
+
   std::string getId(const string &what) {
     std::stringstream ss;
     ss << what << "_" << identifier++;

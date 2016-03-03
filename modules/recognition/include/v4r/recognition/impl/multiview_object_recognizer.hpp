@@ -50,6 +50,7 @@
 #include <v4r/segmentation/multiplane_segmentation.h>
 #include <v4r/segmentation/segmentation_utils.h>
 #include <v4r/changedet/change_detection.h>
+#include <v4r/changedet/Visualizer3D.h>
 
 #include <boost/graph/kruskal_min_spanning_tree.hpp>
 
@@ -302,6 +303,10 @@ MultiviewRecognizer<PointT>::recognize ()
     v.absolute_pose_ = pose_;
 
     visResStore.savePcd("observation", *scene_);
+    cerr << "[Visualizer] new observation" << endl;
+    Visualizer3D::observation = scene_;
+    Visualizer3D::commonVis.setTransform(pose_);
+    Visualizer3D::commonVis.clear().addColorPointCloud(scene_).show();
 
     computeNormals<PointT>(v.scene_, v.scene_normals_, param_.normal_computation_method_);
 
@@ -751,6 +756,9 @@ MultiviewRecognizer<PointT>::recognize ()
         }
     }
 
+	cerr << "[Visualizer] reconstruction" << endl;
+	Visualizer3D::commonVis.clear().addColorPointCloud(scene_).show();
+
     if ( param_.icp_iterations_ > 0 )
         poseRefinement();
 
@@ -877,6 +885,8 @@ MultiviewRecognizer<PointT>::findChanges() {
 	v4r::VisualResultsStorage::copyCloudColored(*removed_points_history_[id_], changes_visualization, 255, 0, 0);
 	v4r::VisualResultsStorage::copyCloudColored(*added_points_, changes_visualization, 0, 255, 0);
 	visResStore.savePcd("changes", changes_visualization);
+	cerr << "[Visualizer] changes" << endl;
+	Visualizer3D::commonVis.clear().addColorPointCloud(changes_visualization.makeShared(), Eigen::Matrix4f::Identity()).show();
     changes_visualization.clear();
 	v4r::VisualResultsStorage::copyCloudColored(*removed_points_history_[id_], changes_visualization, 255, 0, 0);
 	v4r::VisualResultsStorage::copyCloudColored(*added_points_, changes_visualization, 0, 255, 0);

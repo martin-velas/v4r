@@ -87,7 +87,7 @@ protected:
 				(sin_h_angle < max_sin_h_angle) && (sin_v_angle < max_sin_v_angle);
 	}
 
-private:
+public:
 	double min_dist;
 	double max_dist;
 	double max_sin_h_angle;

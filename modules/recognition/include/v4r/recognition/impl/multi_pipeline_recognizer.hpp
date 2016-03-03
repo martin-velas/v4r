@@ -12,6 +12,9 @@
 #include <pcl/registration/transformation_estimation_svd.h>
 #include <v4r/common/miscellaneous.h>
 #include <v4r/common/stopwatch.h>
+#include <v4r/recognition/visual_results_storage.h>
+#include <v4r/changedet/Visualizer3D.h>
+
 
 namespace v4r
 {
@@ -151,6 +154,11 @@ MultiRecognitionPipeline<PointT>::recognize()
         }
     }
 
+    cerr << "[Visualizer]: keypoints" << endl;
+    typename pcl::PointCloud<pcl::PointXYZRGB>::Ptr gray_scene(new pcl::PointCloud<pcl::PointXYZRGB>);
+    VisualResultsStorage::copyCloudColorReduced(*(Visualizer3D::observation), *gray_scene);
+    Visualizer3D::commonVis.clear().addColorPointCloud(gray_scene).setColor(255,255,0).addPointCloud(*scene_keypoints_).show();
+
     if( !param_.save_hypotheses_ && cg_algorithm_)
     {
         correspondenceGrouping();
@@ -176,6 +184,13 @@ void MultiRecognitionPipeline<PointT>::correspondenceGrouping ()
 {
     if(cg_algorithm_->getRequiresNormals() && (!scene_normals_ || scene_normals_->points.size() != scene_->points.size()))
         computeNormals<PointT>(scene_, scene_normals_, param_.normal_computation_method_);
+
+    int hyp_grouped, hyp_clustered;
+    hyp_grouped = hyp_clustered = 0;
+    pcl::PointCloud<pcl::PointXYZRGB> vis_hyp_grouped;
+    pcl::PointCloud<pcl::PointXYZRGB> vis_hyp_clustered;
+    VisualResultsStorage::copyCloudColorReduced(*Visualizer3D::observation, vis_hyp_grouped);
+    VisualResultsStorage::copyCloudColorReduced(*Visualizer3D::observation, vis_hyp_clustered);
 
     v4r::Stopwatch merge_stopwatch;
     merge_stopwatch.pause();
@@ -240,6 +255,13 @@ void MultiRecognitionPipeline<PointT>::correspondenceGrouping ()
                         cluster_has_been_taken[j] = true;
                     }
                 }
+                // new hypotheses created by grouping:
+                for(int vi = 0; vi < new_transforms.size(); vi++) {
+                  pcl::PointCloud<pcl::PointXYZRGB> model_transformed;
+                  pcl::transformPointCloud(*oh.model_->assembled_, model_transformed, new_transforms[vi]);
+                  vis_hyp_grouped += model_transformed;
+                  hyp_grouped++;
+                }
 
                 t_est.estimateRigidTransformation (*oh.model_->keypoints_, *scene_, merged_corrs, merged_transforms[kept]);
                 kept++;
@@ -247,6 +269,13 @@ void MultiRecognitionPipeline<PointT>::correspondenceGrouping ()
             merged_transforms.resize(kept);
             new_transforms = merged_transforms;
             merge_stopwatch.pause();
+            // clustered hypotheses:
+            for(int vi = 0; vi < new_transforms.size(); vi++) {
+              pcl::PointCloud<pcl::PointXYZRGB> model_transformed;
+              pcl::transformPointCloud(*oh.model_->assembled_, model_transformed, new_transforms[vi]);
+              vis_hyp_clustered += model_transformed;
+              hyp_clustered++;
+            }
         }
 
         std::cout << "Merged " << corresp_clusters.size() << " clusters into " << new_transforms.size() << " clusters. Total correspondences: " << oh.model_scene_corresp_->size () << " " << it->first << std::endl;
@@ -258,6 +287,12 @@ void MultiRecognitionPipeline<PointT>::correspondenceGrouping ()
         models_.resize( existing_hypotheses + new_transforms.size(), oh.model_  );
         transforms_.insert(transforms_.end(), new_transforms.begin(), new_transforms.end());
     }
+
+    cerr << "[Visualizer] new hypotheses: " << hyp_grouped << endl;
+    Visualizer3D::commonVis.clear().addColorPointCloud(vis_hyp_grouped.makeShared()).show();
+    cerr << "[Visualizer] hypotheses clustered: " << hyp_clustered << endl;
+    Visualizer3D::commonVis.clear().addColorPointCloud(vis_hyp_clustered.makeShared()).show();
+
     std::cout << "!#! Merged " << total_hypotheses << " clusters into " << total_hypotheses_clustered << " clusters in " << merge_stopwatch.elapsed() << "sec." << endl;
 }
 

@@ -46,17 +46,29 @@ public:
 		}
 	}
 
-	template <class PointT>
-	static void copyCloudColored(const pcl::PointCloud<PointT> &src,
-			pcl::PointCloud<pcl::PointXYZRGB> &target, uchar r, uchar g, uchar b) {
-		for(size_t i = 0; i < src.size(); i++) {
-			pcl::PointXYZRGB pt = src[i];
-			pt.r = r;
-			pt.g = g;
-			pt.b = b;
-			target.push_back(pt);
-		}
-	}
+        template <class PointT>
+        static void copyCloudColored(const pcl::PointCloud<PointT> &src,
+                        pcl::PointCloud<pcl::PointXYZRGB> &target, uchar r, uchar g, uchar b) {
+                for(size_t i = 0; i < src.size(); i++) {
+                        pcl::PointXYZRGB pt(r, g, b);
+                        pt.x = src[i].x;
+                        pt.y = src[i].y;
+                        pt.z = src[i].z;
+                        target.push_back(pt);
+                }
+        }
+
+        static void copyCloudColorReduced(const pcl::PointCloud<pcl::PointXYZRGB> &src,
+                        pcl::PointCloud<pcl::PointXYZRGB> &target) {
+          pcl::PointCloud<pcl::PointXYZRGB> src_copy;
+          src_copy += src;
+          for(size_t i = 0; i < src_copy.size(); i++) {
+            src_copy[i].r /= 2;
+            src_copy[i].g /= 2;
+            src_copy[i].b /= 2;
+          }
+          target +=  src_copy;
+        }
 
 	void setEnabled(bool enable) {
 		enabled = enable;
