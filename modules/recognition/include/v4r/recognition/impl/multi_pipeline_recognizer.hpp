@@ -258,7 +258,7 @@ void MultiRecognitionPipeline<PointT>::correspondenceGrouping ()
                 // new hypotheses created by grouping:
                 for(int vi = 0; vi < new_transforms.size(); vi++) {
                   pcl::PointCloud<pcl::PointXYZRGB> model_transformed;
-                  pcl::transformPointCloud(*oh.model_->assembled_, model_transformed, new_transforms[vi]);
+                  pcl::transformPointCloud(*oh.model_->getAssembled(0.01f), model_transformed, new_transforms[vi]);
                   vis_hyp_grouped += model_transformed;
                   hyp_grouped++;
                 }
@@ -272,7 +272,7 @@ void MultiRecognitionPipeline<PointT>::correspondenceGrouping ()
             // clustered hypotheses:
             for(int vi = 0; vi < new_transforms.size(); vi++) {
               pcl::PointCloud<pcl::PointXYZRGB> model_transformed;
-              pcl::transformPointCloud(*oh.model_->assembled_, model_transformed, new_transforms[vi]);
+              pcl::transformPointCloud(*oh.model_->getAssembled(0.01f), model_transformed, new_transforms[vi]);
               vis_hyp_clustered += model_transformed;
               hyp_clustered++;
             }

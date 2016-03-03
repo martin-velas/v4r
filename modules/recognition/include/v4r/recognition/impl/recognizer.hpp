@@ -442,7 +442,7 @@ Recognizer<PointT>::saveHypotheses(const std::string &prefix) const {
         hyp = hyp_verified = 0;
         for (size_t i = 0; i < models_.size(); i++) {
                 ModelT &m = *models_[i];
-                typename pcl::PointCloud<PointT>::ConstPtr model_cloud = m.getAssembled(0.003f);
+                typename pcl::PointCloud<PointT>::ConstPtr model_cloud = m.getAssembled(0.01f);
                 pcl::PointCloud<PointT> model_aligned;
                 pcl::transformPointCloud(*model_cloud, model_aligned, transforms_[i]);
                 hypotheses += model_aligned;
